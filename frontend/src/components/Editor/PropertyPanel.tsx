@@ -317,15 +317,40 @@ export function PropertyPanel({
 
 // Helper to get nested property values (e.g., "position.x")
 function getNestedValue(obj: any, path: string): any {
-  const keys = path.split('.')
-  let value = obj
-  for (const key of keys) {
-    if (value && typeof value === 'object' && key in value) {
-      value = value[key]
-    } else {
-      return undefined
+  // Handle special base properties (position, width, height, eventHandlers)
+  if (path.startsWith('position.') || path.startsWith('eventHandlers.')) {
+    const keys = path.split('.')
+    let value = obj
+    for (const key of keys) {
+      if (value && typeof value === 'object' && key in value) {
+        value = value[key]
+      } else {
+        return undefined
+      }
     }
+    return value
   }
-  return value
+  
+  // Handle width, height directly on component
+  if (path === 'width' || path === 'height') {
+    return obj[path]
+  }
+  
+  // All other properties are in component.props
+  if (path.includes('.')) {
+    const keys = path.split('.')
+    let value = obj.props
+    for (const key of keys) {
+      if (value && typeof value === 'object' && key in value) {
+        value = value[key]
+      } else {
+        return undefined
+      }
+    }
+    return value
+  }
+  
+  // Simple property name - look in props
+  return obj.props?.[path]
 }
 

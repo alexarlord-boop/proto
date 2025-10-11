@@ -25,8 +25,11 @@ function DraggableComponent({ component, isSelected, onDelete, onSelect }: Dragg
     left: `${component.position.x}px`,
     top: `${component.position.y}px`,
     opacity: isDragging ? 0.5 : 1,
-    width: component.width ? `${component.width}px` : 'auto',
-    height: component.height ? `${component.height}px` : 'auto',
+  }
+
+  const componentStyle = {
+    width: component.width ? `${component.width}px` : undefined,
+    height: component.height ? `${component.height}px` : undefined,
   }
 
   return (
@@ -76,8 +79,13 @@ function DraggableComponent({ component, isSelected, onDelete, onSelect }: Dragg
         </div>
 
         {/* Actual component */}
-        <div className="pointer-events-auto">
-          {renderComponent(component)}
+        <div 
+          className="pointer-events-auto flex items-stretch" 
+          style={componentStyle}
+        >
+          <div className="w-full h-full">
+            {renderComponent(component)}
+          </div>
         </div>
       </div>
     </div>

@@ -305,7 +305,12 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
     case 'Button': {
       const props = component.props as ButtonProps
       return (
-        <Button variant={props.variant} size={props.size}>
+        <Button 
+          variant={props.variant} 
+          size={props.size}
+          disabled={props.disabled}
+          className="w-full h-full"
+        >
           {props.text}
         </Button>
       )
@@ -318,6 +323,7 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
           type={props.type}
           placeholder={props.placeholder}
           defaultValue={props.defaultValue}
+          disabled={props.disabled}
         />
       )
     }
