@@ -11,7 +11,7 @@ import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import { DnDPalette } from './DnDPalette'
 import { DnDCanvas } from './DnDCanvas'
 import { PropertyPanel } from './PropertyPanel'
-import { COMPONENT_REGISTRY } from './component-registry'
+import { COMPONENT_REGISTRY, LAYOUT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
 import { Button } from '@/components/ui/button'
 import { Save, Home, Maximize2 } from 'lucide-react'
@@ -256,7 +256,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
     : null
 
   const selectedComponentDef = selectedComponent
-    ? COMPONENT_REGISTRY.find((def) => def.type === selectedComponent.type)
+    ? [...COMPONENT_REGISTRY, ...LAYOUT_REGISTRY].find((def) => def.type === selectedComponent.type)
     : null
 
   return (

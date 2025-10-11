@@ -24,15 +24,76 @@ import type {
   TabsProps,
   SelectProps,
   TableProps,
+  ContainerProps,
+  GridProps,
+  StackProps,
   PaletteComponentDefinition,
 } from './types'
+
+// Simple SVG icons for components
+const ButtonIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="2" y="5" width="12" height="6" rx="2" />
+  </svg>
+)
+
+const InputIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="2" y="6" width="12" height="4" rx="1" />
+    <line x1="4" y1="8" x2="10" y2="8" />
+  </svg>
+)
+
+const TabsIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <path d="M2 6h3v-2h3v2h3v-2h3v10H2z" />
+  </svg>
+)
+
+const SelectIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="2" y="5" width="12" height="6" rx="1" />
+    <path d="M6 8l2 2 2-2" />
+  </svg>
+)
+
+const TableIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="2" y="3" width="12" height="10" rx="1" />
+    <line x1="2" y1="6" x2="14" y2="6" />
+    <line x1="8" y1="6" x2="8" y2="13" />
+  </svg>
+)
+
+const ContainerIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="3" y="3" width="10" height="10" rx="1" strokeDasharray="2 2" />
+  </svg>
+)
+
+const GridIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="2" y="2" width="5" height="5" rx="0.5" />
+    <rect x="9" y="2" width="5" height="5" rx="0.5" />
+    <rect x="2" y="9" width="5" height="5" rx="0.5" />
+    <rect x="9" y="9" width="5" height="5" rx="0.5" />
+  </svg>
+)
+
+const StackIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <rect x="3" y="3" width="10" height="2.5" rx="0.5" />
+    <rect x="3" y="6.5" width="10" height="2.5" rx="0.5" />
+    <rect x="3" y="10" width="10" height="2.5" rx="0.5" />
+  </svg>
+)
 
 // Registry of available components for the palette
 export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
   {
     type: 'Button',
     label: 'Button',
-    icon: '🔘',
+    icon: <ButtonIcon />,
     defaultProps: {
       text: 'Click me',
       variant: 'default' as const,
@@ -93,7 +154,7 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
   {
     type: 'Input',
     label: 'Input',
-    icon: '📝',
+    icon: <InputIcon />,
     defaultProps: {
       placeholder: 'Enter text...',
       type: 'text' as const,
@@ -145,7 +206,7 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
   {
     type: 'Tabs',
     label: 'Tabs',
-    icon: '📑',
+    icon: <TabsIcon />,
     defaultProps: {
       tabs: [
         { value: 'tab1', label: 'Tab 1', content: 'Content 1' },
@@ -181,7 +242,7 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
   {
     type: 'Select',
     label: 'Select',
-    icon: '📋',
+    icon: <SelectIcon />,
     defaultProps: {
       placeholder: 'Select an option',
       options: [
@@ -235,7 +296,7 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
   {
     type: 'Table',
     label: 'Table',
-    icon: '📊',
+    icon: <TableIcon />,
     defaultProps: {
       dataSourceType: 'query',
       striped: true,
@@ -309,6 +370,119 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
       },
     ],
     events: ['onRowClick'],
+  },
+]
+
+// Layout components registry
+export const LAYOUT_REGISTRY: PaletteComponentDefinition[] = [
+  {
+    type: 'Container',
+    label: 'Container',
+    icon: <ContainerIcon />,
+    defaultProps: {
+      padding: '16px',
+      backgroundColor: 'transparent',
+    },
+    propertySchema: [
+      {
+        key: 'padding',
+        label: 'Padding',
+        category: 'layout',
+        editorType: 'text',
+        defaultValue: '16px',
+        placeholder: '16px',
+        description: 'Padding inside the container',
+      },
+      {
+        key: 'backgroundColor',
+        label: 'Background',
+        category: 'style',
+        editorType: 'text',
+        defaultValue: 'transparent',
+        placeholder: '#ffffff',
+        description: 'Background color',
+      },
+    ],
+    events: [],
+  },
+  {
+    type: 'Grid',
+    label: 'Grid',
+    icon: <GridIcon />,
+    defaultProps: {
+      columns: 2,
+      gap: '16px',
+    },
+    propertySchema: [
+      {
+        key: 'columns',
+        label: 'Columns',
+        category: 'layout',
+        editorType: 'number',
+        defaultValue: 2,
+        min: 1,
+        max: 12,
+        description: 'Number of columns',
+      },
+      {
+        key: 'gap',
+        label: 'Gap',
+        category: 'layout',
+        editorType: 'text',
+        defaultValue: '16px',
+        placeholder: '16px',
+        description: 'Space between items',
+      },
+    ],
+    events: [],
+  },
+  {
+    type: 'Stack',
+    label: 'Stack',
+    icon: <StackIcon />,
+    defaultProps: {
+      direction: 'vertical',
+      gap: '8px',
+      align: 'stretch',
+    },
+    propertySchema: [
+      {
+        key: 'direction',
+        label: 'Direction',
+        category: 'layout',
+        editorType: 'select',
+        defaultValue: 'vertical',
+        options: [
+          { value: 'vertical', label: 'Vertical' },
+          { value: 'horizontal', label: 'Horizontal' },
+        ],
+        description: 'Stack direction',
+      },
+      {
+        key: 'gap',
+        label: 'Gap',
+        category: 'layout',
+        editorType: 'text',
+        defaultValue: '8px',
+        placeholder: '8px',
+        description: 'Space between items',
+      },
+      {
+        key: 'align',
+        label: 'Alignment',
+        category: 'layout',
+        editorType: 'select',
+        defaultValue: 'stretch',
+        options: [
+          { value: 'start', label: 'Start' },
+          { value: 'center', label: 'Center' },
+          { value: 'end', label: 'End' },
+          { value: 'stretch', label: 'Stretch' },
+        ],
+        description: 'Item alignment',
+      },
+    ],
+    events: [],
   },
 ]
 
@@ -547,6 +721,54 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
       return <TableComponent component={component} props={props} />
     }
 
+    case 'Container': {
+      const props = component.props as ContainerProps
+      return (
+        <div 
+          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md"
+          style={{ 
+            padding: props.padding || '16px',
+            backgroundColor: props.backgroundColor || 'transparent'
+          }}
+        >
+          <div className="text-xs text-slate-400 text-center">Container</div>
+        </div>
+      )
+    }
+
+    case 'Grid': {
+      const props = component.props as GridProps
+      return (
+        <div 
+          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md p-2"
+          style={{ 
+            display: 'grid',
+            gridTemplateColumns: `repeat(${props.columns || 2}, 1fr)`,
+            gap: props.gap || '16px'
+          }}
+        >
+          <div className="text-xs text-slate-400 text-center col-span-full">Grid Layout</div>
+        </div>
+      )
+    }
+
+    case 'Stack': {
+      const props = component.props as StackProps
+      return (
+        <div 
+          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md p-2"
+          style={{ 
+            display: 'flex',
+            flexDirection: props.direction === 'horizontal' ? 'row' : 'column',
+            gap: props.gap || '8px',
+            alignItems: props.align || 'stretch'
+          }}
+        >
+          <div className="text-xs text-slate-400 text-center">Stack Layout</div>
+        </div>
+      )
+    }
+
     default:
       return <div>Unknown component type</div>
   }
@@ -557,49 +779,11 @@ export function renderPalettePreview(
   componentDef: PaletteComponentDefinition
 ): React.ReactNode {
   switch (componentDef.type) {
-    case 'Button':
-      return (
-        <Button variant="outline" size="sm" className="pointer-events-none">
-          {componentDef.icon} {componentDef.label}
-        </Button>
-      )
-
-    case 'Input':
-      return (
-        <div className="flex items-center gap-2 text-slate-700 text-sm font-medium">
-          <span className="text-2xl">{componentDef.icon}</span>
-          <span>{componentDef.label}</span>
-        </div>
-      )
-
-    case 'Tabs':
-      return (
-        <div className="flex items-center gap-2 text-slate-700 text-sm font-medium">
-          <span className="text-2xl">{componentDef.icon}</span>
-          <span>{componentDef.label}</span>
-        </div>
-      )
-
-    case 'Select':
-      return (
-        <div className="flex items-center gap-2 text-slate-700 text-sm font-medium">
-          <span className="text-2xl">{componentDef.icon}</span>
-          <span>{componentDef.label}</span>
-        </div>
-      )
-
-    case 'Table':
-      return (
-        <div className="flex items-center gap-2 text-slate-700 text-sm font-medium">
-          <span className="text-2xl">{componentDef.icon}</span>
-          <span>{componentDef.label}</span>
-        </div>
-      )
-
     default:
       return (
-        <div className="text-sm text-slate-700">
-          {componentDef.icon} {componentDef.label}
+        <div className="flex items-center gap-2 text-slate-600 text-xs">
+          <span className="flex-shrink-0">{componentDef.icon}</span>
+          <span className="font-medium">{componentDef.label}</span>
         </div>
       )
   }

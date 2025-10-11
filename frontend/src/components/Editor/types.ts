@@ -104,6 +104,22 @@ export interface TableProps {
   bordered?: boolean
 }
 
+export interface ContainerProps {
+  padding?: string
+  backgroundColor?: string
+}
+
+export interface GridProps {
+  columns?: number
+  gap?: string
+}
+
+export interface StackProps {
+  direction?: 'vertical' | 'horizontal'
+  gap?: string
+  align?: 'start' | 'center' | 'end' | 'stretch'
+}
+
 // Union type for all component-specific properties
 export type ComponentSpecificProps = 
   | { type: 'Button'; props: ButtonProps }
@@ -111,6 +127,9 @@ export type ComponentSpecificProps =
   | { type: 'Tabs'; props: TabsProps }
   | { type: 'Select'; props: SelectProps }
   | { type: 'Table'; props: TableProps }
+  | { type: 'Container'; props: ContainerProps }
+  | { type: 'Grid'; props: GridProps }
+  | { type: 'Stack'; props: StackProps }
 
 // Complete component instance that combines base metadata with specific props
 export type ComponentInstance = BaseComponentMetadata & ComponentSpecificProps
@@ -119,7 +138,7 @@ export type ComponentInstance = BaseComponentMetadata & ComponentSpecificProps
 export interface PaletteComponentDefinition {
   type: string
   label: string
-  icon: string
+  icon: React.ReactNode
   defaultProps: any
   propertySchema: PropertyDefinition[]
   events?: string[]  // List of available events (e.g., ['onClick', 'onHover'])
