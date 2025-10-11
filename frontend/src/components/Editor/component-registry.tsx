@@ -299,6 +299,25 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
   },
 ]
 
+// Helper to execute event handler code
+function executeEventHandler(
+  component: ComponentInstance,
+  eventName: string,
+  event: any
+) {
+  const handler = component.eventHandlers?.[eventName]
+  if (handler && handler.code) {
+    try {
+      // Create a function from the code string
+      // Available variables: event, component
+      const func = new Function('event', 'component', handler.code)
+      func(event, component)
+    } catch (error) {
+      console.error(`Error executing ${eventName} handler:`, error)
+    }
+  }
+}
+
 // Render function that takes component instance and renders the actual UI component
 export function renderComponent(component: ComponentInstance): React.ReactNode {
   switch (component.type) {
@@ -310,6 +329,9 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
           size={props.size}
           disabled={props.disabled}
           className="w-full h-full"
+          onClick={(e) => executeEventHandler(component, 'onClick', e)}
+          onMouseEnter={(e) => executeEventHandler(component, 'onMouseEnter', e)}
+          onMouseLeave={(e) => executeEventHandler(component, 'onMouseLeave', e)}
         >
           {props.text}
         </Button>
@@ -324,6 +346,9 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
           placeholder={props.placeholder}
           defaultValue={props.defaultValue}
           disabled={props.disabled}
+          onChange={(e) => executeEventHandler(component, 'onChange', e)}
+          onFocus={(e) => executeEventHandler(component, 'onFocus', e)}
+          onBlur={(e) => executeEventHandler(component, 'onBlur', e)}
         />
       )
     }
@@ -331,7 +356,10 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
     case 'Tabs': {
       const props = component.props as TabsProps
       return (
-        <Tabs defaultValue={props.defaultValue || props.tabs[0]?.value}>
+        <Tabs 
+          defaultValue={props.defaultValue || props.tabs[0]?.value}
+          onValueChange={(value) => executeEventHandler(component, 'onValueChange', { value })}
+        >
           <TabsList>
             {props.tabs.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value}>
@@ -351,7 +379,11 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
     case 'Select': {
       const props = component.props as SelectProps
       return (
-        <Select defaultValue={props.defaultValue} disabled={props.disabled}>
+        <Select 
+          defaultValue={props.defaultValue} 
+          disabled={props.disabled}
+          onValueChange={(value) => executeEventHandler(component, 'onValueChange', { value })}
+        >
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder={props.placeholder} />
           </SelectTrigger>
@@ -383,7 +415,8 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
                 props.data.map((row, idx) => (
                   <TableRow 
                     key={idx}
-                    className={props.striped && idx % 2 === 1 ? 'bg-slate-50' : ''}
+                    className={`${props.striped && idx % 2 === 1 ? 'bg-slate-50' : ''} ${component.eventHandlers?.onRowClick ? 'cursor-pointer hover:bg-slate-100' : ''}`}
+                    onClick={(e) => executeEventHandler(component, 'onRowClick', { row, index: idx, event: e })}
                   >
                     {props.columns.map((col) => (
                       <TableCell key={col.key}>
