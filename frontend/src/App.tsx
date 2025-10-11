@@ -1,9 +1,7 @@
-import { DnDCanvas } from "@/components/DnDCanvas"
+import { DnDEditor } from "@/components/Editor/DnDEditor.tsx"
 
 function App() {
-    return (
-        <DnDCanvas />
-    )
+    return <DnDEditor />
 }
 
 export default App
