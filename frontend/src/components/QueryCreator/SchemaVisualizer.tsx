@@ -13,8 +13,9 @@ import {
   type Edge,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import dagre from 'dagre'
 import { Button } from '@/components/ui/button'
-import { Maximize2 } from 'lucide-react'
+import { Maximize2, Network } from 'lucide-react'
 import { FullScreenPreview } from '../Editor/FullScreenPreview'
 
 interface Column {
@@ -229,6 +230,52 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
     setEdges(initialEdges)
   }, [initialNodes, initialEdges, setNodes, setEdges])
 
+  // Auto-layout function using dagre
+  const onNormalizeLayout = useCallback(() => {
+    const dagreGraph = new dagre.graphlib.Graph()
+    dagreGraph.setDefaultEdgeLabel(() => ({}))
+    
+    // Configure the graph layout
+    dagreGraph.setGraph({ 
+      rankdir: 'LR', // Left to right layout
+      nodesep: 100,  // Horizontal spacing between nodes
+      ranksep: 150,  // Vertical spacing between ranks
+      edgesep: 50,   // Spacing between edges
+      marginx: 50,
+      marginy: 50,
+    })
+
+    // Add nodes to dagre graph
+    nodes.forEach((node) => {
+      dagreGraph.setNode(node.id, { 
+        width: 260,  // Approximate node width
+        height: 200, // Approximate node height (will vary by number of columns)
+      })
+    })
+
+    // Add edges to dagre graph
+    edges.forEach((edge) => {
+      dagreGraph.setEdge(edge.source, edge.target)
+    })
+
+    // Calculate layout
+    dagre.layout(dagreGraph)
+
+    // Update node positions
+    const layoutedNodes = nodes.map((node) => {
+      const nodeWithPosition = dagreGraph.node(node.id)
+      return {
+        ...node,
+        position: {
+          x: nodeWithPosition.x - 130, // Center the node (half of width)
+          y: nodeWithPosition.y - 100, // Center the node (half of height)
+        },
+      }
+    })
+
+    setNodes(layoutedNodes)
+  }, [nodes, edges, setNodes])
+
   if (schema.length === 0) {
     return (
       <div className="h-full flex items-center justify-center text-slate-500">
@@ -311,8 +358,17 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
           💡 Drag to pan, scroll to zoom
         </div>
         
-        {!inFullScreen && (
-          <div className="pt-3 border-t mt-3">
+        <div className="pt-3 border-t mt-3 space-y-2">
+          <Button
+            onClick={onNormalizeLayout}
+            size="sm"
+            variant="default"
+            className="w-full"
+          >
+            <Network className="w-3 h-3 mr-2" />
+            Normalize Layout
+          </Button>
+          {!inFullScreen && (
             <Button
               onClick={() => setIsFullScreenOpen(true)}
               size="sm"
@@ -322,8 +378,8 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
               <Maximize2 className="w-3 h-3 mr-2" />
               Full Screen
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </>
   )
