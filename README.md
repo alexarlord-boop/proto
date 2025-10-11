@@ -18,6 +18,7 @@ A comprehensive low-code platform with project management, SQL query builder, an
 - **Schema Browser**: View database tables, columns, types, and relationships
 - **Query Execution**: Test queries and view results directly in the interface
 - **Per-Project Storage**: Queries are saved per developer per project
+- **Full-Screen Schema Diagram**: Expand schema visualizer for better manipulation 🆕
 
 ### 3. Visual Component Editor
 - **Drag-and-Drop Interface**: Build UIs by dragging components onto a canvas
@@ -26,6 +27,7 @@ A comprehensive low-code platform with project management, SQL query builder, an
 - **Event Handlers**: Add custom JavaScript event handlers to components
 - **Data Binding**: Connect table components to SQL queries or API endpoints
 - **Persistent Canvas**: Save your layouts and reload them anytime
+- **Full-Screen Preview**: View your canvas as end-users would see it 🆕
 
 ### 4. Data Integration
 - **SQL Query Data Sources**: Use saved SQL queries to populate table components
@@ -224,6 +226,21 @@ From the home page you can:
    - Select your saved query from the **SQL Query** dropdown
 4. The table will automatically fetch and display data from the query
 
+### Using Full-Screen Preview 🆕
+
+**Canvas Preview:**
+1. Open any project in the editor
+2. Click the **Preview** button in the top toolbar (next to Save)
+3. View your canvas without editor UI elements
+4. Press **ESC** or click the close button to exit
+
+**Schema Diagram Preview:**
+1. Navigate to Query Creator
+2. Select a database connector
+3. Click **Full Screen** button in the schema info overlay
+4. Use enhanced space to manipulate complex schemas
+5. Press **ESC** or click the close button to exit
+
 ### Alternative: Using API Endpoints
 
 1. Set **Data Source Type** to "URL/API Endpoint"
@@ -356,6 +373,7 @@ curl http://localhost:8000/api/queries/{query-id}/execute
 - **FEATURE_SUMMARY.md** - Complete implementation summary with architecture diagrams
 - **ARCHITECTURE.md** - Overall system architecture
 - **IMPLEMENTATION_SUMMARY.md** - Development history and decisions
+- **FULL_SCREEN_PREVIEW.md** - Full-screen preview feature documentation 🆕
 
 ## Future Enhancements
 

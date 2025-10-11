@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -13,6 +13,9 @@ import {
   type Edge,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import { Button } from '@/components/ui/button'
+import { Maximize2 } from 'lucide-react'
+import { FullScreenPreview } from '../Editor/FullScreenPreview'
 
 interface Column {
   name: string
@@ -122,6 +125,8 @@ const nodeTypes = {
 }
 
 export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
+  const [isFullScreenOpen, setIsFullScreenOpen] = useState(false)
+  
   // Calculate layout positions for tables
   const { initialNodes, initialEdges } = useMemo(() => {
     const nodes: Node[] = []
@@ -239,75 +244,109 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
     table.foreign_keys && table.foreign_keys.length > 0
   )
 
-  return (
-    <div className="h-full w-full bg-slate-50 rounded-lg border">
-      <div className="h-full relative">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{
-            padding: 0.2,
-            minZoom: 0.5,
-            maxZoom: 1.5,
+  // Render the ReactFlow diagram
+  const renderDiagram = (inFullScreen = false) => (
+    <>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{
+          padding: 0.2,
+          minZoom: 0.5,
+          maxZoom: 1.5,
+        }}
+        minZoom={0.1}
+        maxZoom={2}
+        defaultEdgeOptions={{
+          type: 'smoothstep',
+          animated: true,
+        }}
+      >
+        <Background color="#cbd5e1" gap={16} />
+        <Controls />
+        <MiniMap
+          nodeColor={() => '#3b82f6'}
+          maskColor="rgba(0, 0, 0, 0.1)"
+          style={{
+            backgroundColor: '#f8fafc',
           }}
-          minZoom={0.1}
-          maxZoom={2}
-          defaultEdgeOptions={{
-            type: 'smoothstep',
-            animated: true,
-          }}
-        >
-          <Background color="#cbd5e1" gap={16} />
-          <Controls />
-          <MiniMap
-            nodeColor={() => '#3b82f6'}
-            maskColor="rgba(0, 0, 0, 0.1)"
-            style={{
-              backgroundColor: '#f8fafc',
-            }}
-          />
-        </ReactFlow>
+        />
+      </ReactFlow>
+      
+      {/* Info overlay */}
+      <div className={`absolute ${inFullScreen ? 'top-20' : 'top-4'} left-4 bg-white/95 backdrop-blur-sm px-4 py-3 rounded-lg shadow-md border text-xs max-w-[280px]`}>
+        <div className="font-semibold text-slate-700 mb-2">Schema Overview</div>
+        <div className="text-slate-600 mb-3">
+          {schema.length} table{schema.length !== 1 ? 's' : ''}
+          {hasRelationships && (
+            <span className="ml-2">• {edges.length} relationship{edges.length !== 1 ? 's' : ''}</span>
+          )}
+        </div>
         
-        {/* Info overlay */}
-        <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-3 rounded-lg shadow-md border text-xs max-w-[280px]">
-          <div className="font-semibold text-slate-700 mb-2">Schema Overview</div>
-          <div className="text-slate-600 mb-3">
-            {schema.length} table{schema.length !== 1 ? 's' : ''}
-            {hasRelationships && (
-              <span className="ml-2">• {edges.length} relationship{edges.length !== 1 ? 's' : ''}</span>
-            )}
+        <div className="space-y-1.5 mb-3 pt-2 border-t">
+          <div className="font-semibold text-slate-700">Legend:</div>
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-600">🔑</span>
+            <span className="text-slate-600">Primary Key</span>
           </div>
-          
-          <div className="space-y-1.5 mb-3 pt-2 border-t">
-            <div className="font-semibold text-slate-700">Legend:</div>
-            <div className="flex items-center gap-2">
-              <span className="text-yellow-600">🔑</span>
-              <span className="text-slate-600">Primary Key</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-blue-600">🔗</span>
-              <span className="text-slate-600">Foreign Key</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-blue-50 border border-blue-200 rounded"></div>
-              <span className="text-slate-600">FK Column</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div>
-              <span className="text-slate-600">Referenced Column</span>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-blue-600">🔗</span>
+            <span className="text-slate-600">Foreign Key</span>
           </div>
-          
-          <div className="text-slate-500 italic pt-2 border-t">
-            💡 Drag to pan, scroll to zoom
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-blue-50 border border-blue-200 rounded"></div>
+            <span className="text-slate-600">FK Column</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div>
+            <span className="text-slate-600">Referenced Column</span>
           </div>
         </div>
+        
+        <div className="text-slate-500 italic pt-2 border-t">
+          💡 Drag to pan, scroll to zoom
+        </div>
+        
+        {!inFullScreen && (
+          <div className="pt-3 border-t mt-3">
+            <Button
+              onClick={() => setIsFullScreenOpen(true)}
+              size="sm"
+              variant="outline"
+              className="w-full"
+            >
+              <Maximize2 className="w-3 h-3 mr-2" />
+              Full Screen
+            </Button>
+          </div>
+        )}
       </div>
-    </div>
+    </>
+  )
+
+  return (
+    <>
+      <div className="h-full w-full bg-slate-50 rounded-lg border">
+        <div className="h-full relative">
+          {renderDiagram(false)}
+        </div>
+      </div>
+
+      {/* Full Screen Preview */}
+      <FullScreenPreview
+        isOpen={isFullScreenOpen}
+        onClose={() => setIsFullScreenOpen(false)}
+        title="Database Schema Diagram"
+      >
+        <div className="w-full h-full bg-slate-50">
+          {renderDiagram(true)}
+        </div>
+      </FullScreenPreview>
+    </>
   )
 }
 

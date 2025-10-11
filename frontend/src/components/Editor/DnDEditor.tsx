@@ -14,7 +14,9 @@ import { PropertyPanel } from './PropertyPanel'
 import { COMPONENT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
 import { Button } from '@/components/ui/button'
-import { Save, Home } from 'lucide-react'
+import { Save, Home, Maximize2 } from 'lucide-react'
+import { FullScreenPreview } from './FullScreenPreview'
+import { CanvasPreview } from './CanvasPreview'
 
 interface DnDEditorProps {
   projectId?: string
@@ -29,6 +31,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const nextIdRef = useRef(1)
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -234,6 +237,19 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
     )
   }
 
+  const handlePreviewPositionChange = (id: string, position: { x: number; y: number }) => {
+    setItems((items) =>
+      items.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              position,
+            }
+          : item
+      )
+    )
+  }
+
   // Get selected component data
   const selectedComponent = selectedComponentId
     ? items.find((item) => item.id === selectedComponentId)
@@ -271,17 +287,29 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           </div>
         </div>
         
-        {projectId && (
+        <div className="flex items-center gap-3">
           <Button
-            onClick={saveProject}
-            disabled={saving}
-            className="bg-blue-600 hover:bg-blue-700"
+            onClick={() => setIsPreviewOpen(true)}
+            variant="outline"
             size="sm"
+            className="border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:border-slate-400"
           >
-            <Save className="w-4 h-4 mr-2" />
-            {saving ? 'Saving...' : 'Save'}
+            <Maximize2 className="w-4 h-4 mr-2" />
+            Preview
           </Button>
-        )}
+          
+          {projectId && (
+            <Button
+              onClick={saveProject}
+              disabled={saving}
+              className="bg-blue-600 hover:bg-blue-700"
+              size="sm"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Editor Area */}
@@ -334,6 +362,18 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           </DndContext>
         </div>
       </div>
+
+      {/* Full Screen Preview */}
+      <FullScreenPreview
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        title={`Preview: ${projectName || 'Untitled Project'}`}
+      >
+        <CanvasPreview 
+          items={items} 
+          onPositionChange={handlePreviewPositionChange}
+        />
+      </FullScreenPreview>
     </div>
   )
 }
