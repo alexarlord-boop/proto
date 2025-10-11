@@ -44,7 +44,7 @@ export function DnDEditor() {
   }
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const { active, delta, over } = event
+    const { active, delta, over, activatorEvent } = event
 
     console.log('Drag end:', { activeId: active.id, overId: over?.id, delta })
 
@@ -55,16 +55,21 @@ export function DnDEditor() {
       // If dragging from palette, create new item
       if (dragData?.type === 'palette-item') {
         const canvasBounds = canvasRef.current?.getBoundingClientRect()
-        if (canvasBounds) {
-          // Use a simpler approach: place item at center initially
-          // or use a fixed grid position
+        if (canvasBounds && activatorEvent instanceof PointerEvent) {
+          // Get the actual cursor position at drop time
+          // Calculate position relative to canvas, accounting for box size (96px = w-24 h-24)
+          const boxSize = 96
+          const dropX = activatorEvent.clientX + delta.x - canvasBounds.left - boxSize / 2
+          const dropY = activatorEvent.clientY + delta.y - canvasBounds.top - boxSize / 2
+
           const newItem: CanvasItem = {
             id: `item-${nextIdRef.current++}`,
             label: dragData.label,
             color: dragData.color,
             position: {
-              x: Math.max(0, Math.min(Math.random() * (canvasBounds.width - 96), canvasBounds.width - 96)),
-              y: Math.max(0, Math.min(Math.random() * (canvasBounds.height - 96), canvasBounds.height - 96)),
+              // Clamp position to keep box within canvas bounds
+              x: Math.max(0, Math.min(dropX, canvasBounds.width - boxSize)),
+              y: Math.max(0, Math.min(dropY, canvasBounds.height - boxSize)),
             },
           }
 
