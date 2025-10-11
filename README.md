@@ -1,10 +1,17 @@
 # Proto - SQL Query Builder & Visual Editor
 
-A comprehensive low-code platform with SQL query management and visual component editor.
+A comprehensive low-code platform with project management, SQL query builder, and visual component editor.
 
 ## Features
 
-### 1. SQL Query Creator
+### 1. Project Management 🆕
+- **Create Projects**: Build multiple canvas-based applications
+- **Save & Load**: Persist canvas layouts with all components and properties
+- **Project Library**: Manage all your projects from a central home page
+- **Query Reusability**: Share SQL queries across multiple projects
+- **Version Tracking**: Automatic timestamps for created and updated dates
+
+### 2. SQL Query Creator
 - **Database Connectors**: Support for SQLite, PostgreSQL, and MySQL
 - **Query Management**: Create, read, update, and delete SQL queries
 - **Real-time Validation**: Validate SQL queries before execution
@@ -12,14 +19,15 @@ A comprehensive low-code platform with SQL query management and visual component
 - **Query Execution**: Test queries and view results directly in the interface
 - **Per-Project Storage**: Queries are saved per developer per project
 
-### 2. Visual Component Editor
+### 3. Visual Component Editor
 - **Drag-and-Drop Interface**: Build UIs by dragging components onto a canvas
 - **Component Library**: Buttons, Inputs, Tabs, Selects, and Tables
 - **Property Panel**: Edit component properties, styles, and behaviors
 - **Event Handlers**: Add custom JavaScript event handlers to components
 - **Data Binding**: Connect table components to SQL queries or API endpoints
+- **Persistent Canvas**: Save your layouts and reload them anytime
 
-### 3. Data Integration
+### 4. Data Integration
 - **SQL Query Data Sources**: Use saved SQL queries to populate table components
 - **API Endpoints**: Connect to external APIs for data fetching
 - **Static Data**: Define inline JSON data for quick prototyping
@@ -37,6 +45,10 @@ backend/
 ```
 
 **Key Endpoints:**
+- `POST /api/projects` - Create canvas project
+- `GET /api/projects` - List all projects
+- `PUT /api/projects/{id}` - Update project
+- `DELETE /api/projects/{id}` - Delete project
 - `POST /api/connectors` - Create database connector
 - `GET /api/connectors` - List all connectors
 - `GET /api/connectors/{id}/schema` - Get database schema
@@ -50,8 +62,10 @@ backend/
 ```
 frontend/src/
 ├── components/
+│   ├── ProjectManager/
+│   │   └── ProjectManager.tsx    # Project list and CRUD UI
 │   ├── Editor/
-│   │   ├── DnDEditor.tsx         # Main editor component
+│   │   ├── DnDEditor.tsx         # Main editor with save/load
 │   │   ├── DnDCanvas.tsx         # Drag-and-drop canvas
 │   │   ├── DnDPalette.tsx        # Component palette
 │   │   ├── PropertyPanel.tsx     # Property editor with query selection
@@ -60,7 +74,7 @@ frontend/src/
 │   ├── QueryCreator/
 │   │   └── QueryCreator.tsx      # SQL query management UI
 │   └── ui/                       # Shadcn UI components
-└── App.tsx                       # Routing
+└── App.tsx                       # Routing (/, /editor/{id}, /query-creator)
 ```
 
 ## Getting Started
@@ -109,6 +123,24 @@ pnpm dev
 The app will be available at `http://localhost:5173`
 
 ## Usage Guide
+
+### Creating a New Project
+
+1. Open the app at `http://localhost:5173/` (you'll see the home page)
+2. Click **+ New Project**
+3. Enter a project name and optional description
+4. Click **Create** - you'll be taken to the canvas editor
+5. Drag components from the left palette onto the canvas
+6. Configure component properties in the right panel
+7. Link Table components to saved SQL queries
+8. Click **Save** to persist your project
+
+### Managing Projects
+
+From the home page you can:
+- **Open**: Edit a project in the canvas
+- **Edit**: Update project name and description  
+- **Delete**: Remove a project (with confirmation)
 
 ### Creating a Database Connector
 
@@ -171,6 +203,11 @@ The app will be available at `http://localhost:5173`
 **sql_queries table:**
 - Stores SQL queries with metadata
 - Fields: id, name, description, sql_query, connector_id, project_id, developer_id, is_valid, validation_error, last_executed, timestamps
+
+**projects table:** 🆕
+- Stores canvas projects with components
+- Fields: id, name, description, components (JSON), developer_id, timestamps
+- Components are stored as JSON array of ComponentInstance objects
 
 ### Target Databases
 - The system connects to your actual databases (SQLite, PostgreSQL, MySQL)
@@ -262,18 +299,38 @@ curl http://localhost:8000/api/queries/{query-id}/execute
 - Verify query ID is correct
 - Ensure query returns data when executed
 
+## Documentation
+
+- **QUICKSTART.md** - Step-by-step getting started guide
+- **PROJECT_CRUD_FEATURE.md** - Detailed technical documentation for projects feature
+- **FEATURE_SUMMARY.md** - Complete implementation summary with architecture diagrams
+- **ARCHITECTURE.md** - Overall system architecture
+- **IMPLEMENTATION_SUMMARY.md** - Development history and decisions
+
 ## Future Enhancements
 
+### Projects
+- [ ] Project templates and duplication
+- [ ] Version history and restore
+- [ ] Project export/import (JSON)
+- [ ] Auto-save functionality
+- [ ] Project tags and search
+- [ ] Canvas thumbnails
+
+### Queries
 - [ ] Query parameter support
 - [ ] Query scheduling/cron jobs
 - [ ] Export query results (CSV, JSON, Excel)
 - [ ] Visual query builder (no SQL required)
 - [ ] Query versioning and history
 - [ ] Collaborative query editing
+
+### Platform
 - [ ] Performance monitoring
 - [ ] Query optimization suggestions
 - [ ] Multi-tenant support
 - [ ] Role-based access control
+- [ ] User authentication
 
 ## Contributing
 

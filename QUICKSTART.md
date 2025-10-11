@@ -2,6 +2,14 @@
 
 Get up and running with Proto in 5 minutes!
 
+## Overview
+
+Proto is a visual application builder with:
+- **Project Management**: Create and manage multiple canvas projects
+- **Drag & Drop Editor**: Build UIs with pre-built components
+- **Query Management**: Create reusable SQL queries
+- **Data Binding**: Link components to database queries
+
 ## 1. Start the Backend
 
 ```bash
@@ -11,6 +19,11 @@ uvicorn main:app --reload
 ```
 
 Backend will be available at `http://localhost:8000`
+
+The database will be automatically initialized with the following tables:
+- `db_connectors` - Database connection configurations
+- `sql_queries` - Saved SQL queries
+- `projects` - Canvas projects with components
 
 ## 2. Start the Frontend
 
@@ -194,6 +207,39 @@ You can also use static data without queries:
 - Ensure query is valid (green checkmark)
 - Try executing query in Query Creator first
 - Check that **Data Source Type** is set to "SQL Query"
+
+## Working with Projects
+
+### Creating a New Project
+
+1. From the home page, click "New Project"
+2. Enter a project name and optional description
+3. Click "Create" - you'll be taken to the canvas editor
+4. Drag components from the palette to the canvas
+5. Configure component properties in the right panel
+6. Link Table components to saved queries
+7. Click "Save" to persist your project
+
+### Managing Projects
+
+- **Open**: Click "Open" to edit a project in the canvas
+- **Edit**: Click the pencil icon to update project name/description
+- **Delete**: Click the trash icon to remove a project (with confirmation)
+
+### Reusing Queries
+
+Queries are independent of projects and can be reused:
+1. Create queries in the Query Creator
+2. In any project, select a Table component
+3. Set "Data Source Type" to "SQL Query"
+4. Choose from your saved queries in the dropdown
+5. The table will automatically load data from that query
+
+Each project stores:
+- All component instances and their positions
+- Component properties and configurations
+- References to queries (not the queries themselves)
+- Custom event handlers and layouts
 
 ## Tips
 

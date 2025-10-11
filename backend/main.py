@@ -5,8 +5,9 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import uuid
+import json
 
-from database import get_db, init_db, DBConnector, SQLQuery
+from database import get_db, init_db, DBConnector, SQLQuery, Project
 from db_manager import db_manager
 
 
@@ -104,6 +105,32 @@ class QueryValidateRequest(BaseModel):
     connector_id: str
 
 
+class ProjectCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    components: List[dict] = []
+    developer_id: str = "default"
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    components: Optional[List[dict]] = None
+
+
+class ProjectResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str]
+    components: List[dict]
+    developer_id: str
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
 # ============================================================================
 # API Endpoints
 # ============================================================================
@@ -116,6 +143,7 @@ async def root():
         "endpoints": {
             "connectors": "/api/connectors",
             "queries": "/api/queries",
+            "projects": "/api/projects",
             "execute": "/api/queries/execute",
             "validate": "/api/queries/validate",
             "schema": "/api/connectors/{id}/schema"
@@ -483,3 +511,108 @@ async def execute_query_by_id(
         "columns": result.get("columns", []),
         "data": result.get("data", [])
     }
+
+
+# ============================================================================
+# Project Endpoints
+# ============================================================================
+
+@app.post("/api/projects", response_model=ProjectResponse)
+async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
+    """Create a new canvas project"""
+    db_project = Project(
+        id=str(uuid.uuid4()),
+        name=project.name,
+        description=project.description,
+        components=json.dumps(project.components),
+        developer_id=project.developer_id
+    )
+    
+    db.add(db_project)
+    db.commit()
+    db.refresh(db_project)
+    
+    # Convert components back to list for response
+    return {
+        **db_project.__dict__,
+        "components": json.loads(db_project.components)
+    }
+
+
+@app.get("/api/projects", response_model=List[ProjectResponse])
+async def list_projects(
+    developer_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """List all projects with optional filters"""
+    query = db.query(Project)
+    
+    if developer_id:
+        query = query.filter(Project.developer_id == developer_id)
+    
+    projects = query.order_by(Project.updated_at.desc()).all()
+    
+    # Convert components from JSON string to list for each project
+    return [
+        {
+            **project.__dict__,
+            "components": json.loads(project.components)
+        }
+        for project in projects
+    ]
+
+
+@app.get("/api/projects/{project_id}", response_model=ProjectResponse)
+async def get_project(project_id: str, db: Session = Depends(get_db)):
+    """Get a specific project by ID"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return {
+        **project.__dict__,
+        "components": json.loads(project.components)
+    }
+
+
+@app.put("/api/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    project_id: str,
+    project_update: ProjectUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update an existing project"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Update fields if provided
+    if project_update.name is not None:
+        project.name = project_update.name
+    if project_update.description is not None:
+        project.description = project_update.description
+    if project_update.components is not None:
+        project.components = json.dumps(project_update.components)
+    
+    project.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(project)
+    
+    return {
+        **project.__dict__,
+        "components": json.loads(project.components)
+    }
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str, db: Session = Depends(get_db)):
+    """Delete a project"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    db.delete(project)
+    db.commit()
+    
+    return {"message": "Project deleted successfully"}

@@ -55,6 +55,19 @@ class SQLQuery(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class Project(Base):
+    """Stores canvas projects with components and their configurations"""
+    __tablename__ = "projects"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, index=True)
+    description = Column(Text, nullable=True)
+    components = Column(Text)  # JSON array of ComponentInstance objects
+    developer_id = Column(String, index=True)  # User who created it
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 def get_db():
     """Dependency for FastAPI to get DB session"""
     db = SessionLocal()

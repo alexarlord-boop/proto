@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -13,14 +13,75 @@ import { DnDCanvas } from './DnDCanvas'
 import { PropertyPanel } from './PropertyPanel'
 import { COMPONENT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
+import { Button } from '@/components/ui/button'
+import { Save, Home } from 'lucide-react'
 
-export function DnDEditor() {
+interface DnDEditorProps {
+  projectId?: string
+  projectName?: string
+  onNavigate?: (path: string) => void
+}
+
+export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps) {
   const [items, setItems] = useState<ComponentInstance[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeDragData, setActiveDragData] = useState<any>(null)
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const nextIdRef = useRef(1)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Load project data if projectId is provided
+  useEffect(() => {
+    if (projectId) {
+      loadProject(projectId)
+    }
+  }, [projectId])
+
+  const loadProject = async (id: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/projects/${id}`)
+      if (response.ok) {
+        const project = await response.json()
+        setItems(project.components || [])
+        
+        // Update nextIdRef based on existing component IDs
+        const maxId = project.components.reduce((max: number, component: ComponentInstance) => {
+          const idNum = parseInt(component.id.replace('component-', ''))
+          return isNaN(idNum) ? max : Math.max(max, idNum)
+        }, 0)
+        nextIdRef.current = maxId + 1
+      }
+    } catch (error) {
+      console.error('Failed to load project:', error)
+    }
+  }
+
+  const saveProject = async () => {
+    if (!projectId) {
+      console.warn('No project ID to save to')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const response = await fetch(`http://localhost:8000/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ components: items }),
+      })
+
+      if (response.ok) {
+        setLastSaved(new Date())
+        console.log('Project saved successfully')
+      }
+    } catch (error) {
+      console.error('Failed to save project:', error)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -183,53 +244,95 @@ export function DnDEditor() {
     : null
 
   return (
-    <div className="w-full h-screen bg-gradient-to-br from-slate-100 to-slate-200 p-6">
-      <div className="max-w-[1800px] mx-auto h-full flex gap-6">
-        <DndContext
-          sensors={sensors}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          collisionDetection={rectIntersection}
-        >
-          {/* Palette Sidebar */}
-          <div className="w-64 flex-shrink-0">
-            <DnDPalette />
+    <div className="w-full h-screen bg-gradient-to-br from-slate-100 to-slate-200 flex flex-col">
+      {/* Top Bar */}
+      <div className="bg-slate-800 text-white px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-4">
+          {onNavigate && (
+            <Button
+              onClick={() => onNavigate('/')}
+              variant="ghost"
+              size="sm"
+              className="text-white hover:bg-slate-700"
+            >
+              <Home className="w-4 h-4 mr-2" />
+              Home
+            </Button>
+          )}
+          <div>
+            <h1 className="text-lg font-semibold">
+              {projectName || 'Untitled Project'}
+            </h1>
+            {lastSaved && (
+              <p className="text-xs text-slate-400">
+                Last saved: {lastSaved.toLocaleTimeString()}
+              </p>
+            )}
           </div>
+        </div>
+        
+        {projectId && (
+          <Button
+            onClick={saveProject}
+            disabled={saving}
+            className="bg-blue-600 hover:bg-blue-700"
+            size="sm"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {saving ? 'Saving...' : 'Save'}
+          </Button>
+        )}
+      </div>
 
-          {/* Canvas Area */}
-          <div className="flex-1 min-w-0 min-h-0 flex">
-            <DnDCanvas
-              items={items}
-              canvasRef={canvasRef}
-              selectedId={selectedComponentId}
-              onDelete={handleDelete}
-              onSelect={handleSelect}
-            />
-          </div>
+      {/* Editor Area */}
+      <div className="flex-1 p-6 overflow-hidden">
+        <div className="max-w-[1800px] mx-auto h-full flex gap-6">
+          <DndContext
+            sensors={sensors}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            collisionDetection={rectIntersection}
+          >
+            {/* Palette Sidebar */}
+            <div className="w-64 flex-shrink-0">
+              <DnDPalette />
+            </div>
 
-          {/* Property Panel Sidebar */}
-          <div className="w-80 flex-shrink-0">
-            <PropertyPanel
-              component={selectedComponent || null}
-              propertySchema={selectedComponentDef?.propertySchema || []}
-              events={selectedComponentDef?.events || []}
-              onPropertyChange={handlePropertyChange}
-              onEventHandlerChange={handleEventHandlerChange}
-              onLayoutChange={handleLayoutChange}
-            />
-          </div>
+            {/* Canvas Area */}
+            <div className="flex-1 min-w-0 min-h-0 flex">
+              <DnDCanvas
+                items={items}
+                canvasRef={canvasRef}
+                selectedId={selectedComponentId}
+                onDelete={handleDelete}
+                onSelect={handleSelect}
+              />
+            </div>
 
-          {/* Drag Overlay */}
-          <DragOverlay>
-            {activeId && activeDragData?.type === 'palette-item' ? (
-              <div className="bg-white border-2 border-blue-400 rounded-lg shadow-2xl p-3 flex items-center justify-center">
-                <span className="text-slate-700 font-medium">
-                  {activeDragData.label}
-                </span>
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+            {/* Property Panel Sidebar */}
+            <div className="w-80 flex-shrink-0">
+              <PropertyPanel
+                component={selectedComponent || null}
+                propertySchema={selectedComponentDef?.propertySchema || []}
+                events={selectedComponentDef?.events || []}
+                onPropertyChange={handlePropertyChange}
+                onEventHandlerChange={handleEventHandlerChange}
+                onLayoutChange={handleLayoutChange}
+              />
+            </div>
+
+            {/* Drag Overlay */}
+            <DragOverlay>
+              {activeId && activeDragData?.type === 'palette-item' ? (
+                <div className="bg-white border-2 border-blue-400 rounded-lg shadow-2xl p-3 flex items-center justify-center">
+                  <span className="text-slate-700 font-medium">
+                    {activeDragData.label}
+                  </span>
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </div>
       </div>
     </div>
   )
