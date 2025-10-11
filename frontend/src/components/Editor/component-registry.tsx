@@ -318,6 +318,104 @@ function executeEventHandler(
   }
 }
 
+// TableComponent with data fetching capability
+function TableComponent({ component, props }: { component: ComponentInstance; props: TableProps }) {
+  const [data, setData] = React.useState(props.data || [])
+  const [columns, setColumns] = React.useState(props.columns || [])
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    // If dataSource is provided, fetch data from API
+    if (props.dataSource) {
+      setLoading(true)
+      setError(null)
+      
+      fetch(props.dataSource)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((result) => {
+          // Handle response that includes both columns and data
+          if (result.columns && result.data) {
+            setColumns(result.columns)
+            setData(result.data)
+          } 
+          // Handle response that's just an array of data
+          else if (Array.isArray(result)) {
+            setData(result)
+          }
+          // Handle response with data property
+          else if (result.data) {
+            setData(result.data)
+          }
+          setLoading(false)
+        })
+        .catch((err) => {
+          console.error('Error fetching table data:', err)
+          setError(err.message || 'Failed to fetch data')
+          setLoading(false)
+        })
+    } else {
+      // Use static data
+      setData(props.data || [])
+      setColumns(props.columns || [])
+    }
+  }, [props.dataSource, props.data, props.columns])
+
+  return (
+    <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {columns.map((col) => (
+              <TableHead key={col.key}>{col.label}</TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {loading ? (
+            <TableRow>
+              <TableCell colSpan={columns.length} className="text-center text-slate-400">
+                Loading data...
+              </TableCell>
+            </TableRow>
+          ) : error ? (
+            <TableRow>
+              <TableCell colSpan={columns.length} className="text-center text-red-500">
+                Error: {error}
+              </TableCell>
+            </TableRow>
+          ) : data && data.length > 0 ? (
+            data.map((row, idx) => (
+              <TableRow 
+                key={idx}
+                className={`${props.striped && idx % 2 === 1 ? 'bg-slate-50' : ''} ${component.eventHandlers?.onRowClick ? 'cursor-pointer hover:bg-slate-100' : ''}`}
+                onClick={(e) => executeEventHandler(component, 'onRowClick', { row, index: idx, event: e })}
+              >
+                {columns.map((col) => (
+                  <TableCell key={col.key}>
+                    {row[col.key] ?? '-'}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              <TableCell colSpan={columns.length} className="text-center text-slate-400">
+                No data
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
 // Render function that takes component instance and renders the actual UI component
 export function renderComponent(component: ComponentInstance): React.ReactNode {
   switch (component.type) {
@@ -400,42 +498,7 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
 
     case 'Table': {
       const props = component.props as TableProps
-      return (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {props.columns.map((col) => (
-                  <TableHead key={col.key}>{col.label}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {props.data && props.data.length > 0 ? (
-                props.data.map((row, idx) => (
-                  <TableRow 
-                    key={idx}
-                    className={`${props.striped && idx % 2 === 1 ? 'bg-slate-50' : ''} ${component.eventHandlers?.onRowClick ? 'cursor-pointer hover:bg-slate-100' : ''}`}
-                    onClick={(e) => executeEventHandler(component, 'onRowClick', { row, index: idx, event: e })}
-                  >
-                    {props.columns.map((col) => (
-                      <TableCell key={col.key}>
-                        {row[col.key] ?? '-'}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={props.columns.length} className="text-center text-slate-400">
-                    {props.dataSource ? 'Loading data...' : 'No data'}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )
+      return <TableComponent component={component} props={props} />
     }
 
     default:
