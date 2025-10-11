@@ -43,7 +43,7 @@ interface SchemaVisualizerProps {
 }
 
 // Custom node component for table display
-const TableNode = ({ data }: any) => {
+const TableNode = ({ data, selected }: any) => {
   // Identify which columns are involved in relationships
   const foreignKeyColumns = new Set(
     data.foreignKeys?.flatMap((fk: any) => fk.constrained_columns) || []
@@ -53,11 +53,18 @@ const TableNode = ({ data }: any) => {
   )
 
   return (
-    <div className="bg-white border-2 border-slate-300 rounded-lg shadow-lg min-w-[240px] relative">
+    <div className={`bg-white rounded-lg shadow-lg min-w-[240px] relative transition-all duration-200 ${
+      selected 
+        ? 'border-4 border-green-500 shadow-2xl ring-4 ring-green-200' 
+        : 'border-2 border-slate-300'
+    }`}>
       {/* Table Header */}
-      <div className="bg-blue-600 text-white px-3 py-2 rounded-t-md font-semibold text-sm flex items-center gap-2">
+      <div className={`text-white px-3 py-2 rounded-t-md font-semibold text-sm flex items-center gap-2 ${
+        selected ? 'bg-green-600' : 'bg-blue-600'
+      }`}>
         <span>📊</span>
         <span>{data.label}</span>
+        {selected && <span className="ml-auto text-xs">✓ Selected</span>}
       </div>
       
       {/* Table Columns */}
@@ -127,6 +134,7 @@ const nodeTypes = {
 
 export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
   const [isFullScreenOpen, setIsFullScreenOpen] = useState(false)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   
   // Calculate layout positions for tables
   const { initialNodes, initialEdges } = useMemo(() => {
@@ -180,11 +188,13 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
       
       // Create edges for foreign key relationships
       if (table.foreign_keys) {
-        table.foreign_keys.forEach((fk, fkIndex) => {
+        table.foreign_keys.forEach((fk) => {
           // Create an edge for each constrained column pair
           fk.constrained_columns.forEach((sourceCol, colIdx) => {
             const targetCol = fk.referred_columns[colIdx] || fk.referred_columns[0]
             const edgeId = `${table.name}-${sourceCol}-${fk.referred_table}-${targetCol}`
+            
+            const isSelfReference = table.name === fk.referred_table
             
             edges.push({
               id: edgeId,
@@ -196,7 +206,7 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
               animated: true,
               label: `${sourceCol} → ${targetCol}`,
               labelStyle: { 
-                fontSize: 9, 
+                fontSize: isSelfReference ? 11 : 10, // Larger font for better readability
                 fill: '#1e40af',
                 fontWeight: 600,
               },
@@ -204,6 +214,8 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
                 fill: '#ffffff', 
                 fillOpacity: 0.95,
               },
+              labelBgPadding: [6, 8] as [number, number], // More padding for visibility
+              labelBgBorderRadius: 4,
               style: { 
                 stroke: '#3b82f6', 
                 strokeWidth: 2,
@@ -224,11 +236,107 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
 
+  // Update nodes styling based on selected node
+  const styledNodes = useMemo(() => {
+    return nodes.map((node) => ({
+      ...node,
+      selected: node.id === selectedNodeId,
+    }))
+  }, [nodes, selectedNodeId])
+
+  // Update edges styling based on selected node
+  const styledEdges = useMemo(() => {
+    return edges.map((edge) => {
+      const isSelfReference = edge.source === edge.target
+      const isConnected = edge.source === selectedNodeId || edge.target === selectedNodeId
+      
+      // Self-referencing edges always get orange styling
+      if (isSelfReference) {
+        const isSelected = isConnected && selectedNodeId
+        return {
+          ...edge,
+          animated: true,
+          style: {
+            stroke: '#f97316', // orange-500
+            strokeWidth: isSelected ? 4 : 2.5,
+            opacity: !selectedNodeId || isSelected ? 1 : 0.2,
+          },
+          labelStyle: {
+            ...edge.labelStyle,
+            fill: '#ea580c', // orange-600
+            fontSize: 11, // Larger for self-references
+            fontWeight: isSelected ? 700 : 600,
+            opacity: !selectedNodeId || isSelected ? 1 : 0.2,
+          },
+          labelBgStyle: {
+            ...edge.labelBgStyle,
+            fill: '#fff7ed', // orange-50
+            fillOpacity: 0.95,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: '#f97316',
+          },
+        }
+      }
+      
+      // Regular edges - highlight in green when connected to selected node
+      if (selectedNodeId) {
+        if (isConnected) {
+          return {
+            ...edge,
+            animated: true,
+            style: {
+              stroke: '#22c55e', // green-500
+              strokeWidth: 4,
+            },
+            labelStyle: {
+              ...edge.labelStyle,
+              fill: '#16a34a', // green-600
+              fontSize: 11, // Larger when highlighted
+              fontWeight: 700,
+            },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: '#22c55e',
+            },
+          }
+        } else {
+          return {
+            ...edge,
+            animated: false,
+            style: {
+              ...edge.style,
+              opacity: 0.2,
+            },
+            labelStyle: {
+              ...edge.labelStyle,
+              opacity: 0.2,
+            },
+          }
+        }
+      }
+      
+      // Default edge appearance
+      return edge
+    })
+  }, [edges, selectedNodeId])
+
   // Update nodes when schema changes
   React.useEffect(() => {
     setNodes(initialNodes)
     setEdges(initialEdges)
   }, [initialNodes, initialEdges, setNodes, setEdges])
+
+  // Handle node click - toggle selection
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    setSelectedNodeId((prevId) => (prevId === node.id ? null : node.id))
+  }, [])
+
+  // Handle pane click - deselect node
+  const onPaneClick = useCallback(() => {
+    setSelectedNodeId(null)
+  }, [])
 
   // Auto-layout function using dagre
   const onNormalizeLayout = useCallback(() => {
@@ -295,10 +403,12 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
   const renderDiagram = (inFullScreen = false) => (
     <>
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={styledNodes}
+        edges={styledEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{
@@ -352,10 +462,15 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
             <div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div>
             <span className="text-slate-600">Referenced Column</span>
           </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5 bg-orange-500 rounded"></div>
+            <span className="text-slate-600">Self-reference</span>
+          </div>
         </div>
         
-        <div className="text-slate-500 italic pt-2 border-t">
-          💡 Drag to pan, scroll to zoom
+        <div className="text-slate-500 italic pt-2 border-t space-y-1">
+          <div>💡 Drag to pan, scroll to zoom</div>
+          <div>🖱️ Click table to highlight relations</div>
         </div>
         
         <div className="pt-3 border-t mt-3 space-y-2">
