@@ -237,50 +237,23 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
     label: 'Table',
     icon: '📊',
     defaultProps: {
-      columns: [
-        { key: 'id', label: 'ID' },
-        { key: 'name', label: 'Name' },
-        { key: 'status', label: 'Status' },
-      ],
-      data: [
-        { id: '1', name: 'Item 1', status: 'Active' },
-        { id: '2', name: 'Item 2', status: 'Inactive' },
-      ],
+      dataSourceType: 'query',
       striped: true,
       bordered: true,
     } as TableProps,
     propertySchema: [
       {
-        key: 'columns',
-        label: 'Columns',
-        category: 'data',
-        editorType: 'json',
-        defaultValue: [
-          { key: 'id', label: 'ID' },
-          { key: 'name', label: 'Name' },
-        ],
-        placeholder: '[{"key": "id", "label": "ID"}]',
-        description: 'Array of column definitions with key and label',
-      },
-      {
         key: 'dataSourceType',
         label: 'Data Source Type',
         category: 'data',
         editorType: 'select',
-        defaultValue: 'url',
+        defaultValue: 'query',
         options: [
-          { value: 'url', label: 'URL/API Endpoint' },
           { value: 'query', label: 'SQL Query' },
+          { value: 'url', label: 'URL/API Endpoint' },
+          { value: 'static', label: 'Static Data' },
         ],
         description: 'Type of data source for the table',
-      },
-      {
-        key: 'dataSource',
-        label: 'Data Source URL',
-        category: 'data',
-        editorType: 'text',
-        placeholder: 'https://api.example.com/data',
-        description: 'API endpoint to fetch table data from (only for URL type)',
       },
       {
         key: 'queryId',
@@ -288,7 +261,23 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
         category: 'data',
         editorType: 'query-select',
         placeholder: 'Select a saved query',
-        description: 'Saved SQL query to use as data source (only for Query type)',
+        description: 'Select a saved SQL query to populate the table',
+        visibleWhen: {
+          key: 'dataSourceType',
+          value: 'query',
+        },
+      },
+      {
+        key: 'dataSource',
+        label: 'API Endpoint URL',
+        category: 'data',
+        editorType: 'text',
+        placeholder: 'https://api.example.com/data',
+        description: 'API endpoint that returns JSON data',
+        visibleWhen: {
+          key: 'dataSourceType',
+          value: 'url',
+        },
       },
       {
         key: 'data',
@@ -296,7 +285,11 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
         category: 'data',
         editorType: 'json',
         placeholder: '[{"id": 1, "name": "Item"}]',
-        description: 'Static data array (used if dataSource is not set)',
+        description: 'JSON array of data. Columns will be auto-detected.',
+        visibleWhen: {
+          key: 'dataSourceType',
+          value: 'static',
+        },
       },
       {
         key: 'striped',
@@ -340,18 +333,33 @@ function executeEventHandler(
 
 // TableComponent with data fetching capability
 function TableComponent({ component, props }: { component: ComponentInstance; props: TableProps }) {
-  const [data, setData] = React.useState(props.data || [])
-  const [columns, setColumns] = React.useState(props.columns || [])
+  const [data, setData] = React.useState<Array<Record<string, any>>>([])
+  const [columns, setColumns] = React.useState<Array<{key: string, label: string}>>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
+  // Auto-derive columns from data
+  const autoDetectColumns = (dataArray: Array<Record<string, any>>) => {
+    if (!dataArray || dataArray.length === 0) return []
+    
+    const firstRow = dataArray[0]
+    return Object.keys(firstRow).map(key => ({
+      key,
+      label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')
+    }))
+  }
+
   React.useEffect(() => {
     // Determine data source URL based on type
-    let dataSourceUrl = props.dataSource
+    let dataSourceUrl: string | undefined
 
     // If using SQL query as data source
     if (props.dataSourceType === 'query' && props.queryId) {
       dataSourceUrl = `http://localhost:8000/api/queries/${props.queryId}/execute`
+    } 
+    // If using URL as data source
+    else if (props.dataSourceType === 'url' && props.dataSource) {
+      dataSourceUrl = props.dataSource
     }
     
     // If dataSource URL is provided, fetch data from API
@@ -367,7 +375,7 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
           return response.json()
         })
         .then((result) => {
-          // Handle response that includes both columns and data
+          // Handle response that includes both columns and data (from SQL queries)
           if (result.columns && result.data) {
             setColumns(result.columns)
             setData(result.data)
@@ -375,10 +383,13 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
           // Handle response that's just an array of data
           else if (Array.isArray(result)) {
             setData(result)
+            setColumns(autoDetectColumns(result))
           }
           // Handle response with data property
           else if (result.data) {
-            setData(result.data)
+            const dataArray = Array.isArray(result.data) ? result.data : [result.data]
+            setData(dataArray)
+            setColumns(autoDetectColumns(dataArray))
           }
           setLoading(false)
         })
@@ -389,8 +400,15 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
         })
     } else {
       // Use static data
-      setData(props.data || [])
-      setColumns(props.columns || [])
+      const staticData = props.data || []
+      setData(staticData)
+      
+      // Use provided columns or auto-detect from data
+      if (props.columns && props.columns.length > 0) {
+        setColumns(props.columns)
+      } else {
+        setColumns(autoDetectColumns(staticData))
+      }
     }
   }, [props.dataSource, props.dataSourceType, props.queryId, props.data, props.columns])
 

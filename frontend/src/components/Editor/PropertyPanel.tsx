@@ -44,6 +44,8 @@ export function PropertyPanel({
 }: PropertyPanelProps) {
   const [activeTab, setActiveTab] = useState<PropertyCategory>('data')
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([])
+  const [jsonEditorValues, setJsonEditorValues] = useState<Record<string, string>>({})
+  const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
 
   // Fetch saved queries on mount
   useEffect(() => {
@@ -206,23 +208,65 @@ export function PropertyPanel({
           </div>
         )
 
-      case 'json':
+      case 'json': {
+        // Use local state for JSON editing to allow intermediate invalid states
+        const editorKey = `${component.id}-${prop.key}`
+        const editorValue = jsonEditorValues[editorKey] ?? 
+          (typeof currentValue === 'object' && currentValue !== null 
+            ? JSON.stringify(currentValue, null, 2) 
+            : '')
+        
         return (
-          <textarea
-            value={typeof currentValue === 'object' ? JSON.stringify(currentValue, null, 2) : ''}
-            onChange={(e) => {
-              try {
-                const parsed = JSON.parse(e.target.value)
-                onPropertyChange(prop.key, parsed)
-              } catch {
-                // Invalid JSON, don't update
-              }
-            }}
-            placeholder={prop.placeholder || '[]'}
-            disabled={prop.disabled}
-            className="w-full min-h-[100px] p-2 border rounded font-mono text-sm"
-          />
+          <div className="space-y-1">
+            <textarea
+              value={editorValue}
+              onChange={(e) => {
+                const newValue = e.target.value
+                setJsonEditorValues({ ...jsonEditorValues, [editorKey]: newValue })
+                
+                // Try to parse and update if valid
+                if (newValue.trim() === '') {
+                  // Empty value is valid - clear the data
+                  onPropertyChange(prop.key, undefined)
+                  setJsonErrors({ ...jsonErrors, [editorKey]: '' })
+                } else {
+                  try {
+                    const parsed = JSON.parse(newValue)
+                    onPropertyChange(prop.key, parsed)
+                    setJsonErrors({ ...jsonErrors, [editorKey]: '' })
+                  } catch (err) {
+                    // Store error but allow typing to continue
+                    setJsonErrors({ 
+                      ...jsonErrors, 
+                      [editorKey]: err instanceof Error ? err.message : 'Invalid JSON'
+                    })
+                  }
+                }
+              }}
+              onBlur={() => {
+                // On blur, try to format if valid
+                if (!jsonErrors[editorKey] && editorValue.trim()) {
+                  try {
+                    const parsed = JSON.parse(editorValue)
+                    const formatted = JSON.stringify(parsed, null, 2)
+                    setJsonEditorValues({ ...jsonEditorValues, [editorKey]: formatted })
+                  } catch {
+                    // Ignore formatting errors
+                  }
+                }
+              }}
+              placeholder={prop.placeholder || '[]'}
+              disabled={prop.disabled}
+              className={`w-full min-h-[100px] p-2 border rounded font-mono text-sm ${
+                jsonErrors[editorKey] ? 'border-red-300 bg-red-50' : 'bg-slate-50'
+              }`}
+            />
+            {jsonErrors[editorKey] && (
+              <p className="text-xs text-red-600">{jsonErrors[editorKey]}</p>
+            )}
+          </div>
         )
+      }
 
       case 'code':
         return (
@@ -306,6 +350,17 @@ export function PropertyPanel({
     )
   }
 
+  const isPropertyVisible = (prop: PropertyDefinition): boolean => {
+    // If no visibility condition, always show
+    if (!prop.visibleWhen) {
+      return true
+    }
+
+    // Check if the condition is met
+    const conditionValue = getNestedValue(component, prop.visibleWhen.key)
+    return conditionValue === prop.visibleWhen.value
+  }
+
   const renderCategoryContent = (category: PropertyCategory) => {
     if (category === 'methods') {
       return (
@@ -316,7 +371,9 @@ export function PropertyPanel({
     }
 
     const properties = propertiesByCategory[category] || []
-    if (properties.length === 0) {
+    const visibleProperties = properties.filter(isPropertyVisible)
+    
+    if (visibleProperties.length === 0) {
       return (
         <div className="text-sm text-slate-400 text-center py-8">
           No {category} properties available
@@ -326,7 +383,7 @@ export function PropertyPanel({
 
     return (
       <div className="space-y-4">
-        {properties.map((prop) => (
+        {visibleProperties.map((prop) => (
           <div key={prop.key} className="space-y-1">
             <label className="block text-sm font-medium text-slate-700">
               {prop.label}

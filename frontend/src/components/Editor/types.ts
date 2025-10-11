@@ -34,6 +34,10 @@ export interface PropertyDefinition {
   placeholder?: string
   description?: string
   disabled?: boolean
+  visibleWhen?: {    // Conditional visibility
+    key: string      // Property key to check
+    value: any       // Value that the property should have for this to be visible
+  }
 }
 
 // Event handler definition
@@ -88,14 +92,14 @@ export interface SelectProps {
 }
 
 export interface TableProps {
-  columns: Array<{
+  columns?: Array<{
     key: string
     label: string
-  }>
+  }>  // Optional - will be auto-derived from data if not provided
   dataSource?: string  // URL or API endpoint
-  dataSourceType?: 'url' | 'query'  // Type of data source
+  dataSourceType?: 'url' | 'query' | 'static'  // Type of data source
   queryId?: string  // ID of saved SQL query
-  data?: Array<Record<string, any>>
+  data?: Array<Record<string, any>>  // Optional - only for static data
   striped?: boolean
   bordered?: boolean
 }
