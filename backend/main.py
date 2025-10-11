@@ -109,6 +109,7 @@ class SQLQueryResponse(BaseModel):
 class QueryExecuteRequest(BaseModel):
     query_id: str
     limit: Optional[int] = 1000
+    dry_run: Optional[bool] = False
 
 
 class QueryValidateRequest(BaseModel):
@@ -156,8 +157,12 @@ async def root():
             "queries": "/api/queries",
             "projects": "/api/projects",
             "execute": "/api/queries/execute",
-            "validate": "/api/queries/validate",
+            "validate": "/api/queries/validate (dry-run validation)",
             "schema": "/api/connectors/{id}/schema"
+        },
+        "features": {
+            "dry_run_validation": "Validates queries without execution using LIMIT 0",
+            "dry_run_execution": "Execute DML queries without committing (add dry_run=true parameter)"
         }
     }
 
@@ -450,7 +455,7 @@ async def validate_query(request: QueryValidateRequest, db: Session = Depends(ge
 
 @app.post("/api/queries/execute")
 async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_db)):
-    """Execute a saved query and return results"""
+    """Execute a saved query and return results (supports dry-run mode)"""
     query = db.query(SQLQuery).filter(SQLQuery.id == request.query_id).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
@@ -470,11 +475,17 @@ async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_
         "connection_string": connector.connection_string
     }
     
-    result = db_manager.execute_query(query.sql_query, connector_dict, request.limit)
+    result = db_manager.execute_query(
+        query.sql_query, 
+        connector_dict, 
+        request.limit,
+        dry_run=request.dry_run
+    )
     
-    # Update last_executed timestamp
-    query.last_executed = datetime.utcnow()
-    db.commit()
+    # Update last_executed timestamp (only for real executions, not dry-runs)
+    if not request.dry_run:
+        query.last_executed = datetime.utcnow()
+        db.commit()
     
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["message"])
@@ -486,9 +497,10 @@ async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_
 async def execute_query_by_id(
     query_id: str,
     limit: Optional[int] = 1000,
+    dry_run: Optional[bool] = False,
     db: Session = Depends(get_db)
 ):
-    """Execute a saved query by ID (GET endpoint for direct use in dataSource)"""
+    """Execute a saved query by ID (GET endpoint for direct use in dataSource, supports dry-run mode)"""
     query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
@@ -508,11 +520,12 @@ async def execute_query_by_id(
         "connection_string": connector.connection_string
     }
     
-    result = db_manager.execute_query(query.sql_query, connector_dict, limit)
+    result = db_manager.execute_query(query.sql_query, connector_dict, limit, dry_run=dry_run)
     
-    # Update last_executed timestamp
-    query.last_executed = datetime.utcnow()
-    db.commit()
+    # Update last_executed timestamp (only for real executions, not dry-runs)
+    if not dry_run:
+        query.last_executed = datetime.utcnow()
+        db.commit()
     
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["message"])
@@ -520,7 +533,10 @@ async def execute_query_by_id(
     # Return in format expected by Table component
     return {
         "columns": result.get("columns", []),
-        "data": result.get("data", [])
+        "data": result.get("data", []),
+        "dry_run": result.get("dry_run", False),
+        "message": result.get("message"),
+        "affected_rows": result.get("affected_rows")
     }
 
 
