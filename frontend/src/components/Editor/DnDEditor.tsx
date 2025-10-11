@@ -10,21 +10,10 @@ import {
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import { DnDPalette } from './DnDPalette'
 import { DnDCanvas } from './DnDCanvas'
-
-interface Position {
-  x: number
-  y: number
-}
-
-export interface CanvasItem {
-  id: string
-  label: string
-  position: Position
-  color: string
-}
+import type { ComponentInstance } from './types'
 
 export function DnDEditor() {
-  const [items, setItems] = useState<CanvasItem[]>([])
+  const [items, setItems] = useState<ComponentInstance[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeDragData, setActiveDragData] = useState<any>(null)
   const nextIdRef = useRef(1)
@@ -52,32 +41,31 @@ export function DnDEditor() {
     if (over?.id === 'canvas') {
       const dragData = active.data.current
 
-      // If dragging from palette, create new item
+      // If dragging from palette, create new component instance
       if (dragData?.type === 'palette-item') {
         const canvasBounds = canvasRef.current?.getBoundingClientRect()
         if (canvasBounds && activatorEvent instanceof PointerEvent) {
-          // Get the actual cursor position at drop time
-          // Calculate position relative to canvas, accounting for box size (96px = w-24 h-24)
-          const boxSize = 96
-          const dropX = activatorEvent.clientX + delta.x - canvasBounds.left - boxSize / 2
-          const dropY = activatorEvent.clientY + delta.y - canvasBounds.top - boxSize / 2
+          // Calculate drop position
+          const dropX = activatorEvent.clientX + delta.x - canvasBounds.left
+          const dropY = activatorEvent.clientY + delta.y - canvasBounds.top
 
-          const newItem: CanvasItem = {
-            id: `item-${nextIdRef.current++}`,
+          // Create new component instance with metadata and default props
+          const newComponent: ComponentInstance = {
+            id: `component-${nextIdRef.current++}`,
+            type: dragData.componentType,
             label: dragData.label,
-            color: dragData.color,
             position: {
-              // Clamp position to keep box within canvas bounds
-              x: Math.max(0, Math.min(dropX, canvasBounds.width - boxSize)),
-              y: Math.max(0, Math.min(dropY, canvasBounds.height - boxSize)),
+              x: Math.max(0, dropX),
+              y: Math.max(0, dropY),
             },
-          }
+            props: dragData.defaultProps,
+          } as ComponentInstance
 
-          setItems((prev) => [...prev, newItem])
-          console.log('Created new item:', newItem)
+          setItems((prev) => [...prev, newComponent])
+          console.log('Created new component:', newComponent)
         }
       }
-      // If dragging existing canvas item, update position
+      // If dragging existing canvas component, update position
       else if (dragData?.type === 'canvas-item') {
         setItems((items) =>
           items.map((item) =>
@@ -105,8 +93,6 @@ export function DnDEditor() {
     setItems((items) => items.filter((item) => item.id !== id))
   }
 
-  const activeItem = items.find((item) => item.id === activeId)
-
   return (
     <div className="w-full h-screen bg-gradient-to-br from-slate-100 to-slate-200 p-6">
       <div className="max-w-[1400px] mx-auto h-full flex gap-6">
@@ -132,20 +118,11 @@ export function DnDEditor() {
 
           {/* Drag Overlay */}
           <DragOverlay>
-            {activeId &&
-            (activeDragData?.type === 'palette-item' || activeItem) ? (
-              <div
-                className="w-24 h-24 rounded-lg shadow-2xl flex items-center justify-center text-white font-semibold"
-                style={{
-                  backgroundColor:
-                    activeDragData?.type === 'palette-item'
-                      ? activeDragData.color
-                      : activeItem?.color,
-                }}
-              >
-                {activeDragData?.type === 'palette-item'
-                  ? activeDragData.label
-                  : activeItem?.label}
+            {activeId && activeDragData?.type === 'palette-item' ? (
+              <div className="bg-white border-2 border-blue-400 rounded-lg shadow-2xl p-3 flex items-center justify-center">
+                <span className="text-slate-700 font-medium">
+                  {activeDragData.label}
+                </span>
               </div>
             ) : null}
           </DragOverlay>

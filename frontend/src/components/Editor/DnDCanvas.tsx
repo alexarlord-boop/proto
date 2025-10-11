@@ -1,33 +1,18 @@
 import { RefObject } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
+import { renderComponent } from './component-registry'
+import type { ComponentInstance } from './types'
 
-interface Position {
-  x: number
-  y: number
-}
-
-export interface CanvasItem {
-  id: string
-  label: string
-  position: Position
-  color: string
-}
-
-interface DraggableObjectProps extends CanvasItem {
+interface DraggableComponentProps {
+  component: ComponentInstance
   onDelete?: (id: string) => void
 }
 
-function DraggableObject({
-  id,
-  label,
-  color,
-  position,
-  onDelete,
-}: DraggableObjectProps) {
+function DraggableComponent({ component, onDelete }: DraggableComponentProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
-      id,
+      id: component.id,
       data: {
         type: 'canvas-item',
       },
@@ -35,9 +20,8 @@ function DraggableObject({
 
   const style = {
     transform: CSS.Translate.toString(transform),
-    left: `${position.x}px`,
-    top: `${position.y}px`,
-    backgroundColor: color,
+    left: `${component.position.x}px`,
+    top: `${component.position.y}px`,
     opacity: isDragging ? 0.5 : 1,
   }
 
@@ -45,29 +29,42 @@ function DraggableObject({
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      className="absolute w-24 h-24 rounded-lg shadow-lg cursor-move flex items-center justify-center text-white font-semibold select-none group"
+      className="absolute group"
     >
-      {label}
-      {onDelete && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete(id)
-          }}
-          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600"
-          title="Delete"
+      {/* Component wrapper with drag handle */}
+      <div className="relative border-2 border-dashed border-transparent hover:border-blue-400 rounded-lg p-2 transition-colors">
+        {/* Drag handle */}
+        <div
+          {...listeners}
+          {...attributes}
+          className="absolute -top-6 left-0 right-0 h-6 bg-slate-700 text-white text-xs rounded-t-lg flex items-center justify-between px-2 opacity-0 group-hover:opacity-100 transition-opacity cursor-move select-none"
         >
-          ×
-        </button>
-      )}
+          <span className="font-medium">{component.label}</span>
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete(component.id)
+              }}
+              className="w-5 h-5 bg-red-500 rounded text-white text-xs flex items-center justify-center hover:bg-red-600"
+              title="Delete"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        {/* Actual component */}
+        <div className="pointer-events-auto">
+          {renderComponent(component)}
+        </div>
+      </div>
     </div>
   )
 }
 
 interface DnDCanvasProps {
-  items: CanvasItem[]
+  items: ComponentInstance[]
   canvasRef: RefObject<HTMLDivElement>
   onDelete: (id: string) => void
 }
@@ -86,15 +83,15 @@ export function DnDCanvas({ items, canvasRef, onDelete }: DnDCanvasProps) {
           canvasRef.current = node
         }
       }}
-      className="relative w-full h-full bg-white rounded-xl shadow-2xl overflow-hidden border-2 border-slate-300"
+      className="relative w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl shadow-2xl overflow-auto border-2 border-slate-300"
     >
       {items.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-lg pointer-events-none">
-          Drag colored boxes from the palette here
+          Drag UI components from the palette here
         </div>
       )}
       {items.map((item) => (
-        <DraggableObject key={item.id} {...item} onDelete={onDelete} />
+        <DraggableComponent key={item.id} component={item} onDelete={onDelete} />
       ))}
     </div>
   )

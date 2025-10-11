@@ -1,40 +1,25 @@
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
+import { COMPONENT_REGISTRY, renderPalettePreview } from './component-registry'
+import type { PaletteComponentDefinition } from './types'
 
-export interface PaletteItem {
-  id: string
-  label: string
-  color: string
+interface ComponentPaletteItemProps {
+  componentDef: PaletteComponentDefinition
 }
 
-const PALETTE_ITEMS: PaletteItem[] = [
-  { id: 'palette-blue', label: 'Blue', color: '#3b82f6' },
-  { id: 'palette-green', label: 'Green', color: '#10b981' },
-  { id: 'palette-orange', label: 'Orange', color: '#f59e0b' },
-  { id: 'palette-red', label: 'Red', color: '#ef4444' },
-  { id: 'palette-purple', label: 'Purple', color: '#a855f7' },
-  { id: 'palette-pink', label: 'Pink', color: '#ec4899' },
-  { id: 'palette-indigo', label: 'Indigo', color: '#6366f1' },
-  { id: 'palette-cyan', label: 'Cyan', color: '#06b6d4' },
-]
-
-interface PaletteBoxProps {
-  item: PaletteItem
-}
-
-function PaletteBox({ item }: PaletteBoxProps) {
+function ComponentPaletteItem({ componentDef }: ComponentPaletteItemProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: item.id,
+    id: `palette-${componentDef.type}`,
     data: {
       type: 'palette-item',
-      color: item.color,
-      label: item.label,
+      componentType: componentDef.type,
+      label: componentDef.label,
+      defaultProps: componentDef.defaultProps,
     },
   })
 
   const style = {
     transform: CSS.Translate.toString(transform),
-    backgroundColor: item.color,
     opacity: isDragging ? 0.5 : 1,
   }
 
@@ -44,10 +29,10 @@ function PaletteBox({ item }: PaletteBoxProps) {
       style={style}
       {...listeners}
       {...attributes}
-      className="w-20 h-20 rounded-lg shadow-md cursor-grab active:cursor-grabbing flex items-center justify-center text-white text-xs font-semibold select-none hover:shadow-lg transition-shadow"
-      title={`Drag ${item.label} box to canvas`}
+      className="bg-white border-2 border-slate-300 rounded-lg shadow-md cursor-grab active:cursor-grabbing flex items-center justify-center p-3 select-none hover:shadow-lg hover:border-slate-400 transition-all"
+      title={`Drag ${componentDef.label} to canvas`}
     >
-      {item.label}
+      {renderPalettePreview(componentDef)}
     </div>
   )
 }
@@ -55,14 +40,14 @@ function PaletteBox({ item }: PaletteBoxProps) {
 export function DnDPalette() {
   return (
     <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-slate-300">
-      <h2 className="text-lg font-bold text-slate-700 mb-4">Color Palette</h2>
-      <div className="grid grid-cols-2 gap-4">
-        {PALETTE_ITEMS.map((item) => (
-          <PaletteBox key={item.id} item={item} />
+      <h2 className="text-lg font-bold text-slate-700 mb-4">UI Components</h2>
+      <div className="grid grid-cols-1 gap-3">
+        {COMPONENT_REGISTRY.map((componentDef) => (
+          <ComponentPaletteItem key={componentDef.type} componentDef={componentDef} />
         ))}
       </div>
       <p className="text-xs text-slate-500 mt-4 text-center">
-        Drag boxes to canvas
+        Drag components to canvas
       </p>
     </div>
   )
