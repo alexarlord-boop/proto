@@ -15,6 +15,7 @@ export type PropertyEditorType =
   | 'json'      // JSON array/object editor
   | 'code'      // Code editor
   | 'event'     // Event handler (method)
+  | 'query-select'  // SQL query selector
 
 // Property category - for organizing properties in the editor
 export type PropertyCategory = 'data' | 'methods' | 'layout' | 'style'
@@ -92,6 +93,8 @@ export interface TableProps {
     label: string
   }>
   dataSource?: string  // URL or API endpoint
+  dataSourceType?: 'url' | 'query'  // Type of data source
+  queryId?: string  // ID of saved SQL query
   data?: Array<Record<string, any>>
   striped?: boolean
   bordered?: boolean

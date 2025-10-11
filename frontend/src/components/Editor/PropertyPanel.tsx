@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -15,6 +15,15 @@ import type {
   PropertyCategory,
   EventHandler 
 } from './types'
+
+const API_BASE = 'http://localhost:8000'
+
+interface SavedQuery {
+  id: string
+  name: string
+  description: string | null
+  is_valid: boolean
+}
 
 interface PropertyPanelProps {
   component: ComponentInstance | null
@@ -34,6 +43,22 @@ export function PropertyPanel({
   onLayoutChange,
 }: PropertyPanelProps) {
   const [activeTab, setActiveTab] = useState<PropertyCategory>('data')
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([])
+
+  // Fetch saved queries on mount
+  useEffect(() => {
+    fetchSavedQueries()
+  }, [])
+
+  const fetchSavedQueries = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/queries`)
+      const data = await response.json()
+      setSavedQueries(data)
+    } catch (error) {
+      console.error('Error fetching queries:', error)
+    }
+  }
 
   if (!component) {
     return (
@@ -208,6 +233,37 @@ export function PropertyPanel({
             disabled={prop.disabled}
             className="w-full min-h-[150px] p-2 border rounded font-mono text-sm bg-slate-50"
           />
+        )
+
+      case 'query-select':
+        return (
+          <div className="space-y-2">
+            <Select
+              value={currentValue}
+              onValueChange={(value) => onPropertyChange(prop.key, value)}
+              disabled={prop.disabled}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={prop.placeholder || 'Select a query...'} />
+              </SelectTrigger>
+              <SelectContent>
+                {savedQueries
+                  .filter(q => q.is_valid)
+                  .map((query) => (
+                    <SelectItem key={query.id} value={query.id}>
+                      {query.name}
+                      {query.description && ` - ${query.description}`}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <button
+              onClick={() => window.open('/query-creator', '_blank')}
+              className="text-xs text-blue-600 hover:text-blue-700 underline"
+            >
+              Open Query Creator
+            </button>
+          </div>
         )
 
       default:

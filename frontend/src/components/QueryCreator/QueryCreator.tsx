@@ -1,0 +1,630 @@
+import React, { useState, useEffect } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+const API_BASE = 'http://localhost:8000'
+
+interface DBConnector {
+  id: string
+  name: string
+  db_type: string
+  database: string
+  is_active: boolean
+}
+
+interface SQLQuery {
+  id: string
+  name: string
+  description: string | null
+  sql_query: string
+  connector_id: string
+  is_valid: boolean
+  validation_error: string | null
+  last_executed: string | null
+  created_at: string
+}
+
+interface SchemaTable {
+  name: string
+  columns: Array<{
+    name: string
+    type: string
+    nullable: boolean
+    primary_key: boolean
+  }>
+}
+
+export function QueryCreator() {
+  const [connectors, setConnectors] = useState<DBConnector[]>([])
+  const [queries, setQueries] = useState<SQLQuery[]>([])
+  const [selectedConnector, setSelectedConnector] = useState<string>('')
+  const [schema, setSchema] = useState<SchemaTable[]>([])
+  
+  // Query form state
+  const [queryName, setQueryName] = useState('')
+  const [queryDescription, setQueryDescription] = useState('')
+  const [sqlQuery, setSqlQuery] = useState('')
+  const [validationResult, setValidationResult] = useState<any>(null)
+  const [executionResult, setExecutionResult] = useState<any>(null)
+  const [editingQueryId, setEditingQueryId] = useState<string | null>(null)
+  
+  // Connector form state
+  const [showConnectorForm, setShowConnectorForm] = useState(false)
+  const [connectorName, setConnectorName] = useState('')
+  const [connectorType, setConnectorType] = useState('sqlite')
+  const [connectorDatabase, setConnectorDatabase] = useState('')
+  const [connectorHost, setConnectorHost] = useState('')
+  const [connectorPort, setConnectorPort] = useState('')
+  const [connectorUsername, setConnectorUsername] = useState('')
+  const [connectorPassword, setConnectorPassword] = useState('')
+
+  // Load connectors on mount
+  useEffect(() => {
+    fetchConnectors()
+    fetchQueries()
+  }, [])
+
+  // Load schema when connector is selected
+  useEffect(() => {
+    if (selectedConnector) {
+      fetchSchema(selectedConnector)
+    }
+  }, [selectedConnector])
+
+  const fetchConnectors = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/connectors`)
+      const data = await response.json()
+      setConnectors(data)
+    } catch (error) {
+      console.error('Error fetching connectors:', error)
+    }
+  }
+
+  const fetchQueries = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/queries`)
+      const data = await response.json()
+      setQueries(data)
+    } catch (error) {
+      console.error('Error fetching queries:', error)
+    }
+  }
+
+  const fetchSchema = async (connectorId: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/connectors/${connectorId}/schema`)
+      const data = await response.json()
+      setSchema(data.tables || [])
+    } catch (error) {
+      console.error('Error fetching schema:', error)
+      setSchema([])
+    }
+  }
+
+  const createConnector = async () => {
+    try {
+      const payload: any = {
+        name: connectorName,
+        db_type: connectorType,
+        database: connectorDatabase,
+      }
+
+      if (connectorType !== 'sqlite') {
+        payload.host = connectorHost
+        payload.port = parseInt(connectorPort)
+        payload.username = connectorUsername
+        payload.password = connectorPassword
+      }
+
+      const response = await fetch(`${API_BASE}/api/connectors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        alert(`Error: ${error.detail}`)
+        return
+      }
+
+      // Reset form and refresh
+      setConnectorName('')
+      setConnectorType('sqlite')
+      setConnectorDatabase('')
+      setConnectorHost('')
+      setConnectorPort('')
+      setConnectorUsername('')
+      setConnectorPassword('')
+      setShowConnectorForm(false)
+      fetchConnectors()
+      alert('Connector created successfully!')
+    } catch (error) {
+      console.error('Error creating connector:', error)
+      alert('Failed to create connector')
+    }
+  }
+
+  const validateQuery = async () => {
+    if (!sqlQuery || !selectedConnector) {
+      alert('Please select a connector and enter a query')
+      return
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/queries/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sql_query: sqlQuery,
+          connector_id: selectedConnector,
+        }),
+      })
+
+      const data = await response.json()
+      setValidationResult(data)
+    } catch (error) {
+      console.error('Error validating query:', error)
+      setValidationResult({ valid: false, message: 'Validation failed' })
+    }
+  }
+
+  const saveQuery = async () => {
+    if (!queryName || !sqlQuery || !selectedConnector) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    try {
+      const url = editingQueryId 
+        ? `${API_BASE}/api/queries/${editingQueryId}`
+        : `${API_BASE}/api/queries`
+      
+      const method = editingQueryId ? 'PUT' : 'POST'
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: queryName,
+          description: queryDescription,
+          sql_query: sqlQuery,
+          connector_id: selectedConnector,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        alert(`Error: ${error.detail}`)
+        return
+      }
+
+      // Reset form and refresh
+      setQueryName('')
+      setQueryDescription('')
+      setSqlQuery('')
+      setValidationResult(null)
+      setExecutionResult(null)
+      setEditingQueryId(null)
+      fetchQueries()
+      alert(editingQueryId ? 'Query updated successfully!' : 'Query saved successfully!')
+    } catch (error) {
+      console.error('Error saving query:', error)
+      alert('Failed to save query')
+    }
+  }
+
+  const executeQuery = async () => {
+    if (!sqlQuery || !selectedConnector) {
+      alert('Please select a connector and enter a query')
+      return
+    }
+
+    try {
+      // If editing existing query, use its ID
+      if (editingQueryId) {
+        const response = await fetch(`${API_BASE}/api/queries/${editingQueryId}/execute`)
+        const data = await response.json()
+        setExecutionResult(data)
+      } else {
+        // For new query, validate first
+        await validateQuery()
+        alert('Please save the query first before executing')
+      }
+    } catch (error) {
+      console.error('Error executing query:', error)
+      setExecutionResult({ success: false, message: 'Execution failed' })
+    }
+  }
+
+  const loadQuery = (query: SQLQuery) => {
+    setEditingQueryId(query.id)
+    setQueryName(query.name)
+    setQueryDescription(query.description || '')
+    setSqlQuery(query.sql_query)
+    setSelectedConnector(query.connector_id)
+    setValidationResult(null)
+    setExecutionResult(null)
+  }
+
+  const deleteQuery = async (queryId: string) => {
+    if (!confirm('Are you sure you want to delete this query?')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/queries/${queryId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to delete query')
+      }
+
+      fetchQueries()
+      if (editingQueryId === queryId) {
+        setEditingQueryId(null)
+        setQueryName('')
+        setQueryDescription('')
+        setSqlQuery('')
+      }
+    } catch (error) {
+      console.error('Error deleting query:', error)
+      alert('Failed to delete query')
+    }
+  }
+
+  const newQuery = () => {
+    setEditingQueryId(null)
+    setQueryName('')
+    setQueryDescription('')
+    setSqlQuery('')
+    setValidationResult(null)
+    setExecutionResult(null)
+  }
+
+  return (
+    <div className="h-screen flex flex-col bg-slate-50">
+      {/* Header */}
+      <div className="bg-white border-b px-6 py-4 shadow-sm flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">SQL Query Creator</h1>
+          <p className="text-sm text-slate-600">Create and manage SQL queries for your database connectors</p>
+        </div>
+        <button
+          onClick={() => {
+            window.history.pushState({}, '', '/')
+            window.location.reload()
+          }}
+          className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded transition-colors"
+        >
+          ← Back to Editor
+        </button>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar - Connectors & Queries */}
+        <div className="w-80 bg-white border-r flex flex-col">
+          <Tabs defaultValue="queries" className="flex-1 flex flex-col">
+            <TabsList className="m-4 grid grid-cols-2">
+              <TabsTrigger value="queries">Queries</TabsTrigger>
+              <TabsTrigger value="connectors">Connectors</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="queries" className="flex-1 overflow-auto px-4 pb-4">
+              <Button onClick={newQuery} className="w-full mb-4" variant="outline">
+                + New Query
+              </Button>
+              
+              <div className="space-y-2">
+                {queries.map((query) => (
+                  <div
+                    key={query.id}
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors hover:bg-slate-50 ${
+                      editingQueryId === query.id ? 'bg-blue-50 border-blue-300' : ''
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div onClick={() => loadQuery(query)} className="flex-1">
+                        <div className="font-medium text-sm">{query.name}</div>
+                        {query.description && (
+                          <div className="text-xs text-slate-500 mt-1">{query.description}</div>
+                        )}
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            query.is_valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {query.is_valid ? 'Valid' : 'Invalid'}
+                          </span>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteQuery(query.id)
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="connectors" className="flex-1 overflow-auto px-4 pb-4">
+              <Button 
+                onClick={() => setShowConnectorForm(!showConnectorForm)} 
+                className="w-full mb-4" 
+                variant="outline"
+              >
+                {showConnectorForm ? 'Cancel' : '+ New Connector'}
+              </Button>
+
+              {showConnectorForm && (
+                <div className="mb-4 p-4 border rounded-lg bg-slate-50 space-y-3">
+                  <Input
+                    placeholder="Connector Name"
+                    value={connectorName}
+                    onChange={(e) => setConnectorName(e.target.value)}
+                  />
+                  
+                  <Select value={connectorType} onValueChange={setConnectorType}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sqlite">SQLite</SelectItem>
+                      <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                      <SelectItem value="mysql">MySQL</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Input
+                    placeholder={connectorType === 'sqlite' ? 'Database Path' : 'Database Name'}
+                    value={connectorDatabase}
+                    onChange={(e) => setConnectorDatabase(e.target.value)}
+                  />
+
+                  {connectorType !== 'sqlite' && (
+                    <>
+                      <Input
+                        placeholder="Host"
+                        value={connectorHost}
+                        onChange={(e) => setConnectorHost(e.target.value)}
+                      />
+                      <Input
+                        placeholder="Port"
+                        value={connectorPort}
+                        onChange={(e) => setConnectorPort(e.target.value)}
+                      />
+                      <Input
+                        placeholder="Username"
+                        value={connectorUsername}
+                        onChange={(e) => setConnectorUsername(e.target.value)}
+                      />
+                      <Input
+                        type="password"
+                        placeholder="Password"
+                        value={connectorPassword}
+                        onChange={(e) => setConnectorPassword(e.target.value)}
+                      />
+                    </>
+                  )}
+
+                  <Button onClick={createConnector} className="w-full">
+                    Create Connector
+                  </Button>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {connectors.map((connector) => (
+                  <div
+                    key={connector.id}
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors hover:bg-slate-50 ${
+                      selectedConnector === connector.id ? 'bg-blue-50 border-blue-300' : ''
+                    }`}
+                    onClick={() => setSelectedConnector(connector.id)}
+                  >
+                    <div className="font-medium text-sm">{connector.name}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {connector.db_type} - {connector.database}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Main Content - Query Editor */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 p-6 overflow-auto">
+            <div className="max-w-6xl mx-auto space-y-6">
+              {/* Query Form */}
+              <div className="bg-white rounded-lg shadow-sm border p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">
+                    {editingQueryId ? 'Edit Query' : 'New Query'}
+                  </h2>
+                  {editingQueryId && (
+                    <Button onClick={newQuery} variant="outline" size="sm">
+                      New Query
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    placeholder="Query Name *"
+                    value={queryName}
+                    onChange={(e) => setQueryName(e.target.value)}
+                  />
+                  
+                  <Select value={selectedConnector} onValueChange={setSelectedConnector}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Connector *" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {connectors.map((connector) => (
+                        <SelectItem key={connector.id} value={connector.id}>
+                          {connector.name} ({connector.db_type})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Input
+                  placeholder="Description (optional)"
+                  value={queryDescription}
+                  onChange={(e) => setQueryDescription(e.target.value)}
+                />
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    SQL Query *
+                  </label>
+                  <textarea
+                    className="w-full min-h-[200px] p-3 border rounded-lg font-mono text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="SELECT * FROM table_name"
+                    value={sqlQuery}
+                    onChange={(e) => setSqlQuery(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <Button onClick={validateQuery} variant="outline">
+                    Validate
+                  </Button>
+                  <Button onClick={executeQuery} variant="outline">
+                    Execute
+                  </Button>
+                  <Button onClick={saveQuery}>
+                    {editingQueryId ? 'Update Query' : 'Save Query'}
+                  </Button>
+                </div>
+
+                {/* Validation Result */}
+                {validationResult && (
+                  <div className={`p-4 rounded-lg ${
+                    validationResult.valid ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+                  }`}>
+                    <div className={`font-medium ${
+                      validationResult.valid ? 'text-green-800' : 'text-red-800'
+                    }`}>
+                      {validationResult.valid ? '✓ Query is valid' : '✗ Query has errors'}
+                    </div>
+                    <div className={`text-sm mt-1 ${
+                      validationResult.valid ? 'text-green-700' : 'text-red-700'
+                    }`}>
+                      {validationResult.message}
+                    </div>
+                    {validationResult.query_type && (
+                      <div className="text-sm mt-1 text-slate-600">
+                        Query Type: {validationResult.query_type}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Schema Browser */}
+              {selectedConnector && schema.length > 0 && (
+                <div className="bg-white rounded-lg shadow-sm border p-6">
+                  <h3 className="text-lg font-semibold mb-4">Database Schema</h3>
+                  <div className="space-y-4">
+                    {schema.map((table) => (
+                      <details key={table.name} className="border rounded-lg">
+                        <summary className="cursor-pointer p-3 hover:bg-slate-50 font-medium">
+                          📊 {table.name}
+                        </summary>
+                        <div className="p-3 border-t bg-slate-50">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Column</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Nullable</TableHead>
+                                <TableHead>PK</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {table.columns.map((column) => (
+                                <TableRow key={column.name}>
+                                  <TableCell className="font-mono text-sm">{column.name}</TableCell>
+                                  <TableCell className="text-sm text-slate-600">{column.type}</TableCell>
+                                  <TableCell className="text-sm">{column.nullable ? 'Yes' : 'No'}</TableCell>
+                                  <TableCell className="text-sm">{column.primary_key ? '🔑' : ''}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Execution Results */}
+              {executionResult && (
+                <div className="bg-white rounded-lg shadow-sm border p-6">
+                  <h3 className="text-lg font-semibold mb-4">Query Results</h3>
+                  
+                  {executionResult.columns && executionResult.data && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            {executionResult.columns.map((col: any) => (
+                              <TableHead key={col.key}>{col.label}</TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {executionResult.data.map((row: any, idx: number) => (
+                            <TableRow key={idx}>
+                              {executionResult.columns.map((col: any) => (
+                                <TableCell key={col.key}>{row[col.key]}</TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      <div className="p-3 bg-slate-50 border-t text-sm text-slate-600">
+                        {executionResult.data.length} row(s) returned
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+

@@ -263,12 +263,32 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
         description: 'Array of column definitions with key and label',
       },
       {
+        key: 'dataSourceType',
+        label: 'Data Source Type',
+        category: 'data',
+        editorType: 'select',
+        defaultValue: 'url',
+        options: [
+          { value: 'url', label: 'URL/API Endpoint' },
+          { value: 'query', label: 'SQL Query' },
+        ],
+        description: 'Type of data source for the table',
+      },
+      {
         key: 'dataSource',
         label: 'Data Source URL',
         category: 'data',
         editorType: 'text',
         placeholder: 'https://api.example.com/data',
-        description: 'API endpoint to fetch table data from',
+        description: 'API endpoint to fetch table data from (only for URL type)',
+      },
+      {
+        key: 'queryId',
+        label: 'SQL Query',
+        category: 'data',
+        editorType: 'query-select',
+        placeholder: 'Select a saved query',
+        description: 'Saved SQL query to use as data source (only for Query type)',
       },
       {
         key: 'data',
@@ -326,12 +346,20 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    // If dataSource is provided, fetch data from API
-    if (props.dataSource) {
+    // Determine data source URL based on type
+    let dataSourceUrl = props.dataSource
+
+    // If using SQL query as data source
+    if (props.dataSourceType === 'query' && props.queryId) {
+      dataSourceUrl = `http://localhost:8000/api/queries/${props.queryId}/execute`
+    }
+    
+    // If dataSource URL is provided, fetch data from API
+    if (dataSourceUrl) {
       setLoading(true)
       setError(null)
       
-      fetch(props.dataSource)
+      fetch(dataSourceUrl)
         .then((response) => {
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
@@ -364,7 +392,7 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
       setData(props.data || [])
       setColumns(props.columns || [])
     }
-  }, [props.dataSource, props.data, props.columns])
+  }, [props.dataSource, props.dataSourceType, props.queryId, props.data, props.columns])
 
   return (
     <div className="rounded-md border">
