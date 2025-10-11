@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SchemaVisualizer } from './SchemaVisualizer'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -40,6 +41,12 @@ interface SQLQuery {
   created_at: string
 }
 
+interface ForeignKey {
+  constrained_columns: string[]
+  referred_table: string
+  referred_columns: string[]
+}
+
 interface SchemaTable {
   name: string
   columns: Array<{
@@ -48,6 +55,8 @@ interface SchemaTable {
     nullable: boolean
     primary_key: boolean
   }>
+  primary_keys?: string[]
+  foreign_keys?: ForeignKey[]
 }
 
 export function QueryCreator() {
@@ -554,37 +563,76 @@ export function QueryCreator() {
               {selectedConnector && schema.length > 0 && (
                 <div className="bg-white rounded-lg shadow-sm border p-6">
                   <h3 className="text-lg font-semibold mb-4">Database Schema</h3>
-                  <div className="space-y-4">
-                    {schema.map((table) => (
-                      <details key={table.name} className="border rounded-lg">
-                        <summary className="cursor-pointer p-3 hover:bg-slate-50 font-medium">
-                          📊 {table.name}
-                        </summary>
-                        <div className="p-3 border-t bg-slate-50">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Column</TableHead>
-                                <TableHead>Type</TableHead>
-                                <TableHead>Nullable</TableHead>
-                                <TableHead>PK</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {table.columns.map((column) => (
-                                <TableRow key={column.name}>
-                                  <TableCell className="font-mono text-sm">{column.name}</TableCell>
-                                  <TableCell className="text-sm text-slate-600">{column.type}</TableCell>
-                                  <TableCell className="text-sm">{column.nullable ? 'Yes' : 'No'}</TableCell>
-                                  <TableCell className="text-sm">{column.primary_key ? '🔑' : ''}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </details>
-                    ))}
-                  </div>
+                  
+                  <Tabs defaultValue="diagram" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 mb-4">
+                      <TabsTrigger value="diagram">Visual Diagram</TabsTrigger>
+                      <TabsTrigger value="details">Table Details</TabsTrigger>
+                    </TabsList>
+                    
+                    <TabsContent value="diagram" className="mt-0">
+                      <div className="h-[600px] border rounded-lg overflow-hidden">
+                        <SchemaVisualizer schema={schema} />
+                      </div>
+                    </TabsContent>
+                    
+                    <TabsContent value="details" className="mt-0">
+                      <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                        {schema.map((table) => (
+                          <details key={table.name} className="border rounded-lg">
+                            <summary className="cursor-pointer p-3 hover:bg-slate-50 font-medium">
+                              📊 {table.name}
+                              {table.foreign_keys && table.foreign_keys.length > 0 && (
+                                <span className="ml-2 text-xs text-blue-600">
+                                  ({table.foreign_keys.length} relationship{table.foreign_keys.length !== 1 ? 's' : ''})
+                                </span>
+                              )}
+                            </summary>
+                            <div className="p-3 border-t bg-slate-50">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Column</TableHead>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead>Nullable</TableHead>
+                                    <TableHead>PK</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {table.columns.map((column) => (
+                                    <TableRow key={column.name}>
+                                      <TableCell className="font-mono text-sm">{column.name}</TableCell>
+                                      <TableCell className="text-sm text-slate-600">{column.type}</TableCell>
+                                      <TableCell className="text-sm">{column.nullable ? 'Yes' : 'No'}</TableCell>
+                                      <TableCell className="text-sm">{column.primary_key ? '🔑' : ''}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                              
+                              {/* Foreign Key Relationships */}
+                              {table.foreign_keys && table.foreign_keys.length > 0 && (
+                                <div className="mt-4 pt-4 border-t">
+                                  <div className="text-sm font-semibold text-slate-700 mb-2">Foreign Key Relationships:</div>
+                                  <div className="space-y-2">
+                                    {table.foreign_keys.map((fk, idx) => (
+                                      <div key={idx} className="text-xs bg-blue-50 p-2 rounded border border-blue-200">
+                                        <span className="font-mono text-blue-700">{fk.constrained_columns.join(', ')}</span>
+                                        <span className="text-slate-600 mx-2">→</span>
+                                        <span className="font-semibold text-blue-900">{fk.referred_table}</span>
+                                        <span className="text-slate-600">.</span>
+                                        <span className="font-mono text-blue-700">{fk.referred_columns.join(', ')}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
                 </div>
               )}
 
