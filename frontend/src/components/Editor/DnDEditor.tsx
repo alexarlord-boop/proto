@@ -102,12 +102,145 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, delta, over, activatorEvent } = event
 
-    console.log('Drag end:', { activeId: active.id, overId: over?.id, delta })
+    console.log('Drag end:', { activeId: active.id, overId: over?.id, overData: over?.data.current, delta })
 
+    const dragData = active.data.current
+    const overData = over?.data.current
+
+    // Helper to check if a component is a descendant of another
+    const isDescendantOf = (items: ComponentInstance[], componentId: string, potentialAncestorId: string): boolean => {
+      const findComponent = (items: ComponentInstance[], id: string): ComponentInstance | null => {
+        for (const item of items) {
+          if (item.id === id) return item
+          if (item.children) {
+            const found = findComponent(item.children, id)
+            if (found) return found
+          }
+        }
+        return null
+      }
+
+      const checkDescendants = (component: ComponentInstance): boolean => {
+        if (component.id === potentialAncestorId) return true
+        if (component.children) {
+          return component.children.some(child => checkDescendants(child))
+        }
+        return false
+      }
+
+      const component = findComponent(items, componentId)
+      return component ? checkDescendants(component) : false
+    }
+
+    // Helper to add child to container
+    const addChildToContainer = (items: ComponentInstance[], containerId: string, child: ComponentInstance): ComponentInstance[] => {
+      return items.map(item => {
+        if (item.id === containerId) {
+          // Create the child with updated parentId and position, preserving all other properties including nested children
+          const childToAdd = {
+            ...child,
+            parentId: containerId,
+            position: { x: 0, y: 0 },
+            children: child.children || [] // Explicitly preserve children if it's a layout container
+          }
+          return {
+            ...item,
+            children: [...(item.children || []), childToAdd]
+          }
+        }
+        // Recursively check nested children
+        if (item.children && item.children.length > 0) {
+          return {
+            ...item,
+            children: addChildToContainer(item.children, containerId, child)
+          }
+        }
+        return item
+      })
+    }
+
+    // Helper to remove component from its current location
+    const removeComponent = (items: ComponentInstance[], componentId: string): ComponentInstance[] => {
+      return items.filter(item => item.id !== componentId).map(item => {
+        if (item.children && item.children.length > 0) {
+          return {
+            ...item,
+            children: removeComponent(item.children, componentId)
+          }
+        }
+        return item
+      })
+    }
+
+    // Check if dropped on a layout container
+    if (overData?.type === 'layout-container' && overData?.containerId) {
+      const containerId = overData.containerId
+      
+      // Prevent dropping a component onto itself
+      if (active.id === containerId) {
+        console.log('Cannot drop component onto itself')
+        setActiveId(null)
+        setActiveDragData(null)
+        return
+      }
+
+      // Prevent circular nesting (dropping a container into one of its own descendants)
+      if (dragData?.type === 'canvas-item' && isDescendantOf(items, active.id as string, containerId)) {
+        console.log('Cannot create circular nesting - container would be nested inside its own child')
+        setActiveId(null)
+        setActiveDragData(null)
+        return
+      }
+
+      // If dragging from palette, create new component and add to container
+      if (dragData?.type === 'palette-item') {
+        const newComponent: ComponentInstance = {
+          id: `component-${nextIdRef.current++}`,
+          type: dragData.componentType,
+          label: dragData.label,
+          position: { x: 0, y: 0 },
+          props: dragData.defaultProps,
+          parentId: containerId,
+        } as ComponentInstance
+
+        setItems((prev) => {
+          const updated = addChildToContainer(prev, containerId, newComponent)
+          console.log('Added component to container:', newComponent, 'Container:', containerId)
+          console.log('Updated items:', updated)
+          return updated
+        })
+      }
+      // If dragging existing component, move it to container
+      else if (dragData?.type === 'canvas-item') {
+        const draggedId = active.id as string
+        setItems((prev) => {
+          // Find the dragged component
+          const findComponent = (items: ComponentInstance[]): ComponentInstance | null => {
+            for (const item of items) {
+              if (item.id === draggedId) return item
+              if (item.children) {
+                const found = findComponent(item.children)
+                if (found) return found
+              }
+            }
+            return null
+          }
+
+          const draggedComponent = findComponent(prev)
+          if (!draggedComponent) return prev
+
+          // Remove from current location and add to new container
+          console.log('Moving component:', draggedComponent, 'to container:', containerId)
+          let updated = removeComponent(prev, draggedId)
+          console.log('After remove:', updated)
+          updated = addChildToContainer(updated, containerId, draggedComponent)
+          console.log('After add to container:', updated)
+          return updated
+        })
+      }
+    }
     // Check if dropped on canvas
-    if (over?.id === 'canvas') {
-      const dragData = active.data.current
-
+    else if (over?.id === 'canvas' || overData?.type === 'canvas') {
       // If dragging from palette, create new component instance
       if (dragData?.type === 'palette-item') {
         const canvasBounds = canvasRef.current?.getBoundingClientRect()
@@ -128,28 +261,96 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
             props: dragData.defaultProps,
           } as ComponentInstance
 
-          setItems((prev) => [...prev, newComponent])
+          setItems((prev) => {
+            const updated = [...prev, newComponent]
           console.log('Created new component:', newComponent)
+            console.log('Total items:', updated.length)
+            return updated
+          })
         }
       }
       // If dragging existing canvas component, update position
       else if (dragData?.type === 'canvas-item') {
-        setItems((items) =>
-          items.map((item) =>
-            item.id === active.id
-              ? {
+        const draggedId = active.id as string
+        setItems((items) => {
+          // If component is nested, we need to move it to top-level
+          const findComponent = (items: ComponentInstance[]): ComponentInstance | null => {
+            for (const item of items) {
+              if (item.id === draggedId) return item
+              if (item.children) {
+                const found = findComponent(item.children)
+                if (found) return found
+              }
+            }
+            return null
+          }
+
+          const draggedComponent = findComponent(items)
+          if (!draggedComponent) return items
+
+          // If was nested, remove from parent and add to top-level with proper position
+          if (draggedComponent.parentId) {
+            const canvasBounds = canvasRef.current?.getBoundingClientRect()
+            if (canvasBounds && activatorEvent instanceof PointerEvent) {
+              // Calculate actual drop position on canvas
+              const dropX = activatorEvent.clientX + delta.x - canvasBounds.left
+              const dropY = activatorEvent.clientY + delta.y - canvasBounds.top
+              
+              let updated = removeComponent(items, draggedId)
+              const topLevelComponent = {
+                ...draggedComponent,
+                parentId: undefined,
+                position: {
+                  x: Math.max(0, dropX),
+                  y: Math.max(0, dropY),
+                }
+              }
+              return [...updated, topLevelComponent]
+            } else {
+              // Fallback if we can't get bounds (shouldn't happen)
+              let updated = removeComponent(items, draggedId)
+              const topLevelComponent = {
+                ...draggedComponent,
+                parentId: undefined,
+                position: { x: 100, y: 100 }
+              }
+              return [...updated, topLevelComponent]
+            }
+          }
+
+          // Otherwise just update position
+          const updatePosition = (items: ComponentInstance[]): ComponentInstance[] => {
+            return items.map((item) => {
+              if (item.id === draggedId) {
+                return {
                   ...item,
                   position: {
                     x: Math.max(0, item.position.x + delta.x),
                     y: Math.max(0, item.position.y + delta.y),
                   },
+                  // Explicitly preserve children to avoid any spread issues
+                  children: item.children,
                 }
-              : item
-          )
-        )
+              }
+              // Recursively check children in case we're updating a nested component
+              if (item.children && item.children.length > 0) {
+                return {
+                  ...item,
+                  children: updatePosition(item.children)
+                }
+              }
+              return item
+            })
+          }
+          
+          const updated = updatePosition(items)
+          console.log('Updated position for component:', draggedId)
+          console.log('Items after position update:', updated)
+          return updated
+        })
       }
     } else {
-      console.log('Not dropped on canvas, over:', over)
+      console.log('Not dropped on canvas or container, over:', over)
     }
 
     setActiveId(null)
@@ -157,7 +358,20 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   }
 
   const handleDelete = (id: string) => {
-    setItems((items) => items.filter((item) => item.id !== id))
+    // Recursively delete component and its children
+    const removeComponent = (items: ComponentInstance[], componentId: string): ComponentInstance[] => {
+      return items.filter(item => item.id !== componentId).map(item => {
+        if (item.children) {
+          return {
+            ...item,
+            children: removeComponent(item.children, componentId)
+          }
+        }
+        return item
+      })
+    }
+
+    setItems((items) => removeComponent(items, id))
     if (selectedComponentId === id) {
       setSelectedComponentId(null)
     }
@@ -170,8 +384,9 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const handlePropertyChange = (key: string, value: any) => {
     if (!selectedComponentId) return
 
-    setItems((items) =>
-      items.map((item) => {
+    // Recursively update component properties (works for nested and top-level)
+    const updateComponentProps = (items: ComponentInstance[]): ComponentInstance[] => {
+      return items.map((item) => {
         if (item.id === selectedComponentId) {
           // Handle nested property keys like "position.x"
           if (key.includes('.')) {
@@ -195,27 +410,47 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
             }
           }
         }
+        // Recursively check children
+        if (item.children && item.children.length > 0) {
+          return {
+            ...item,
+            children: updateComponentProps(item.children)
+          }
+        }
         return item
       })
-    )
+    }
+
+    setItems((items) => updateComponentProps(items))
   }
 
   const handleEventHandlerChange = (eventName: string, handler: EventHandler) => {
     if (!selectedComponentId) return
 
-    setItems((items) =>
-      items.map((item) =>
-        item.id === selectedComponentId
-          ? {
+    // Recursively update event handlers (works for nested and top-level)
+    const updateEventHandlers = (items: ComponentInstance[]): ComponentInstance[] => {
+      return items.map((item) => {
+        if (item.id === selectedComponentId) {
+          return {
               ...item,
               eventHandlers: {
                 ...item.eventHandlers,
                 [eventName]: handler,
               },
             }
-          : item
-      )
-    )
+        }
+        // Recursively check children
+        if (item.children && item.children.length > 0) {
+          return {
+            ...item,
+            children: updateEventHandlers(item.children)
+          }
+        }
+        return item
+      })
+    }
+
+    setItems((items) => updateEventHandlers(items))
   }
 
   const handleLayoutChange = (updates: {
@@ -225,16 +460,27 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   }) => {
     if (!selectedComponentId) return
 
-    setItems((items) =>
-      items.map((item) =>
-        item.id === selectedComponentId
-          ? {
+    // Recursively update layout (works for nested and top-level)
+    const updateLayout = (items: ComponentInstance[]): ComponentInstance[] => {
+      return items.map((item) => {
+        if (item.id === selectedComponentId) {
+          return {
               ...item,
               ...updates,
             }
-          : item
-      )
-    )
+        }
+        // Recursively check children
+        if (item.children && item.children.length > 0) {
+          return {
+            ...item,
+            children: updateLayout(item.children)
+          }
+        }
+        return item
+      })
+    }
+
+    setItems((items) => updateLayout(items))
   }
 
   const handlePreviewPositionChange = (id: string, position: { x: number; y: number }) => {
@@ -250,9 +496,20 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
     )
   }
 
-  // Get selected component data
+  // Get selected component data (search recursively for nested components)
+  const findComponentById = (items: ComponentInstance[], id: string): ComponentInstance | null => {
+    for (const item of items) {
+      if (item.id === id) return item
+      if (item.children) {
+        const found = findComponentById(item.children, id)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
   const selectedComponent = selectedComponentId
-    ? items.find((item) => item.id === selectedComponentId)
+    ? findComponentById(items, selectedComponentId)
     : null
 
   const selectedComponentDef = selectedComponent

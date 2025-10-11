@@ -637,7 +637,11 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
 }
 
 // Render function that takes component instance and renders the actual UI component
-export function renderComponent(component: ComponentInstance): React.ReactNode {
+// Optional childrenRenderer for layout containers to render interactive children
+export function renderComponent(
+  component: ComponentInstance,
+  childrenRenderer?: (children: ComponentInstance[]) => React.ReactNode
+): React.ReactNode {
   switch (component.type) {
     case 'Button': {
       const props = component.props as ButtonProps
@@ -723,40 +727,76 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
 
     case 'Container': {
       const props = component.props as ContainerProps
+      const hasChildren = component.children && component.children.length > 0
+      console.log('Rendering Container:', component.id, 'children:', component.children?.length || 0)
       return (
         <div 
-          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md"
+          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md min-h-[100px]"
           style={{ 
             padding: props.padding || '16px',
             backgroundColor: props.backgroundColor || 'transparent'
           }}
         >
-          <div className="text-xs text-slate-400 text-center">Container</div>
+          {hasChildren ? (
+            <div className="relative w-full h-full">
+              {childrenRenderer ? (
+                // Use custom renderer if provided (for interactive children in DnDCanvas)
+                childrenRenderer(component.children!)
+              ) : (
+                // Default static rendering
+                component.children!.map((child) => (
+                  <div key={child.id} className="mb-2 last:mb-0">
+                    {renderComponent(child)}
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-400 text-center">Drop components here</div>
+          )}
         </div>
       )
     }
 
     case 'Grid': {
       const props = component.props as GridProps
+      const hasChildren = component.children && component.children.length > 0
+      console.log('Rendering Grid:', component.id, 'children:', component.children?.length || 0)
       return (
         <div 
-          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md p-2"
+          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md p-2 min-h-[100px]"
           style={{ 
             display: 'grid',
             gridTemplateColumns: `repeat(${props.columns || 2}, 1fr)`,
             gap: props.gap || '16px'
           }}
         >
-          <div className="text-xs text-slate-400 text-center col-span-full">Grid Layout</div>
+          {hasChildren ? (
+            childrenRenderer ? (
+              // Use custom renderer if provided
+              childrenRenderer(component.children!)
+            ) : (
+              // Default static rendering
+              component.children!.map((child) => (
+                <div key={child.id}>
+                  {renderComponent(child)}
+                </div>
+              ))
+            )
+          ) : (
+            <div className="text-xs text-slate-400 text-center col-span-full">Drop components here</div>
+          )}
         </div>
       )
     }
 
     case 'Stack': {
       const props = component.props as StackProps
+      const hasChildren = component.children && component.children.length > 0
+      console.log('Rendering Stack:', component.id, 'children:', component.children?.length || 0)
       return (
         <div 
-          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md p-2"
+          className="w-full h-full border-2 border-dashed border-slate-300 rounded-md p-2 min-h-[100px]"
           style={{ 
             display: 'flex',
             flexDirection: props.direction === 'horizontal' ? 'row' : 'column',
@@ -764,7 +804,21 @@ export function renderComponent(component: ComponentInstance): React.ReactNode {
             alignItems: props.align || 'stretch'
           }}
         >
-          <div className="text-xs text-slate-400 text-center">Stack Layout</div>
+          {hasChildren ? (
+            childrenRenderer ? (
+              // Use custom renderer if provided
+              <>{childrenRenderer(component.children!)}</>
+            ) : (
+              // Default static rendering
+              component.children!.map((child) => (
+                <div key={child.id} className={props.direction === 'horizontal' ? 'flex-shrink-0' : ''}>
+                  {renderComponent(child)}
+                </div>
+              ))
+            )
+          ) : (
+            <div className="text-xs text-slate-400 text-center">Drop components here</div>
+          )}
         </div>
       )
     }

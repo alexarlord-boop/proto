@@ -4,14 +4,21 @@ import { CSS } from '@dnd-kit/utilities'
 import { renderComponent } from './component-registry'
 import type { ComponentInstance } from './types'
 
+// Check if component is a layout container that can have children
+function isLayoutContainer(type: string): boolean {
+  return ['Container', 'Grid', 'Stack'].includes(type)
+}
+
 interface DraggableComponentProps {
   component: ComponentInstance
   isSelected: boolean
   onDelete?: (id: string) => void
   onSelect?: (id: string) => void
+  selectedId?: string | null
+  isNested?: boolean
 }
 
-function DraggableComponent({ component, isSelected, onDelete, onSelect }: DraggableComponentProps) {
+function DraggableComponent({ component, isSelected, onDelete, onSelect, selectedId, isNested = false }: DraggableComponentProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: component.id,
@@ -20,7 +27,27 @@ function DraggableComponent({ component, isSelected, onDelete, onSelect }: Dragg
       },
     })
 
-  const style = {
+  // Make layout containers droppable
+  // Disable droppable when this component is being dragged to prevent self-drop
+  const { setNodeRef: setDroppableRef, isOver, active } = useDroppable({
+    id: `container-${component.id}`,
+    disabled: !isLayoutContainer(component.type) || isDragging, // Disable while dragging
+    data: {
+      type: 'layout-container',
+      containerId: component.id,
+    },
+  })
+  
+  // Don't show hover effect if dragging this component onto itself
+  const isHoveringOverSelf = isOver && active?.id === component.id
+  const showDropZone = isOver && !isHoveringOverSelf && !isDragging
+
+  const style = isNested ? {
+    // Nested components use relative positioning
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  } : {
+    // Top-level components use absolute positioning
     transform: CSS.Translate.toString(transform),
     left: `${component.position.x}px`,
     top: `${component.position.y}px`,
@@ -36,7 +63,7 @@ function DraggableComponent({ component, isSelected, onDelete, onSelect }: Dragg
     <div
       ref={setNodeRef}
       style={style}
-      className="absolute group"
+      className={isNested ? "relative group w-full" : "absolute group"}
       onClick={(e) => {
         e.stopPropagation()
         onSelect?.(component.id)
@@ -48,7 +75,7 @@ function DraggableComponent({ component, isSelected, onDelete, onSelect }: Dragg
           isSelected 
             ? 'border-blue-500 bg-blue-50/10' 
             : 'border-transparent hover:border-blue-400'
-        }`}
+        } ${showDropZone && isLayoutContainer(component.type) ? 'border-green-500 bg-green-50/20' : ''}`}
       >
         {/* Drag handle */}
         <div
@@ -78,13 +105,63 @@ function DraggableComponent({ component, isSelected, onDelete, onSelect }: Dragg
           </div>
         </div>
 
-        {/* Actual component */}
+        {/* Actual component with droppable zone for layout containers */}
         <div 
+          ref={isLayoutContainer(component.type) ? setDroppableRef : undefined}
           className="pointer-events-auto flex items-stretch" 
           style={componentStyle}
         >
           <div className="w-full h-full">
-            {renderComponent(component)}
+            {isLayoutContainer(component.type) && component.children && component.children.length > 0 ? (
+              // Render children with special layout-aware rendering
+              renderComponent(component, (children) => {
+                // Different rendering based on layout type
+                if (component.type === 'Container') {
+                  return children.map((child) => (
+                    <div key={child.id} className="mb-2 last:mb-0">
+                      <DraggableComponent
+                        component={child}
+                        isSelected={child.id === selectedId}
+                        selectedId={selectedId}
+                        onDelete={onDelete}
+                        onSelect={onSelect}
+                        isNested={true}
+                      />
+                    </div>
+                  ))
+                } else if (component.type === 'Grid') {
+                  return children.map((child) => (
+                    <div key={child.id}>
+                      <DraggableComponent
+                        component={child}
+                        isSelected={child.id === selectedId}
+                        selectedId={selectedId}
+                        onDelete={onDelete}
+                        onSelect={onSelect}
+                        isNested={true}
+                      />
+                    </div>
+                  ))
+                } else if (component.type === 'Stack') {
+                  const stackProps = component.props as any
+                  return children.map((child) => (
+                    <div key={child.id} className={stackProps?.direction === 'horizontal' ? 'flex-shrink-0' : ''}>
+                      <DraggableComponent
+                        component={child}
+                        isSelected={child.id === selectedId}
+                        selectedId={selectedId}
+                        onDelete={onDelete}
+                        onSelect={onSelect}
+                        isNested={true}
+                      />
+                    </div>
+                  ))
+                }
+                return null
+              })
+            ) : (
+              renderComponent(component)
+            )}
           </div>
         </div>
       </div>
@@ -103,7 +180,13 @@ interface DnDCanvasProps {
 export function DnDCanvas({ items, canvasRef, selectedId, onDelete, onSelect }: DnDCanvasProps) {
   const { setNodeRef } = useDroppable({
     id: 'canvas',
+    data: {
+      type: 'canvas',
+    },
   })
+
+  // Only render top-level items (items without a parentId)
+  const topLevelItems = items.filter(item => !item.parentId)
 
   return (
     <div
@@ -117,18 +200,20 @@ export function DnDCanvas({ items, canvasRef, selectedId, onDelete, onSelect }: 
       className="relative w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl shadow-2xl overflow-auto border-2 border-slate-300"
       onClick={() => onSelect(null)}
     >
-      {items.length === 0 && (
+      {topLevelItems.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-lg pointer-events-none">
           Drag UI components from the palette here
         </div>
       )}
-      {items.map((item) => (
+      {topLevelItems.map((item) => (
         <DraggableComponent 
           key={item.id} 
           component={item} 
           isSelected={item.id === selectedId}
+          selectedId={selectedId}
           onDelete={onDelete}
           onSelect={onSelect}
+          isNested={false}
         />
       ))}
     </div>

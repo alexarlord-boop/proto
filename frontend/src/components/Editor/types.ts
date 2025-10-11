@@ -55,6 +55,8 @@ export interface BaseComponentMetadata {
   width?: number
   height?: number
   eventHandlers?: Record<string, EventHandler>  // Event name -> handler code
+  children?: ComponentInstance[]  // Nested children for layout components
+  parentId?: string  // ID of parent container (if nested)
 }
 
 // Component-specific properties for each component type
