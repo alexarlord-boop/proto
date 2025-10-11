@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { getRowFormatting, getCellFormatting, formatStyleToCSS, mergeStyles } from '@/lib/table-formatting'
 import type {
   ComponentInstance,
   ButtonProps,
@@ -28,6 +29,7 @@ import type {
   GridProps,
   StackProps,
   PaletteComponentDefinition,
+  ColumnConfig,
 } from './types'
 
 // Simple SVG icons for components
@@ -301,6 +303,11 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
       dataSourceType: 'query',
       striped: true,
       bordered: true,
+      columnConfigs: [],
+      formattingRules: [],
+      headerBackgroundColor: '',
+      headerTextColor: '',
+      rowHoverColor: '',
     } as TableProps,
     propertySchema: [
       {
@@ -353,6 +360,13 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
         },
       },
       {
+        key: 'columnConfigs',
+        label: 'Column Configuration',
+        category: 'data',
+        editorType: 'column-config',
+        description: 'Configure column visibility, labels, and order.',
+      },
+      {
         key: 'striped',
         label: 'Striped Rows',
         category: 'style',
@@ -367,6 +381,37 @@ export const COMPONENT_REGISTRY: PaletteComponentDefinition[] = [
         editorType: 'boolean',
         defaultValue: true,
         description: 'Show borders around cells',
+      },
+      {
+        key: 'headerBackgroundColor',
+        label: 'Header Background',
+        category: 'style',
+        editorType: 'color',
+        placeholder: '#f8fafc',
+        description: 'Background color for table header',
+      },
+      {
+        key: 'headerTextColor',
+        label: 'Header Text Color',
+        category: 'style',
+        editorType: 'color',
+        placeholder: '#1e293b',
+        description: 'Text color for table header',
+      },
+      {
+        key: 'rowHoverColor',
+        label: 'Row Hover Color',
+        category: 'style',
+        editorType: 'color',
+        placeholder: '#f1f5f9',
+        description: 'Background color when hovering over rows',
+      },
+      {
+        key: 'formattingRules',
+        label: 'Formatting Rules',
+        category: 'style',
+        editorType: 'formatting-rules',
+        description: 'Create logic-based formatting rules to conditionally style rows and cells.',
       },
     ],
     events: ['onRowClick'],
@@ -505,7 +550,7 @@ function executeEventHandler(
   }
 }
 
-// TableComponent with data fetching capability
+// TableComponent with data fetching capability and enhanced formatting
 function TableComponent({ component, props }: { component: ComponentInstance; props: TableProps }) {
   const [data, setData] = React.useState<Array<Record<string, any>>>([])
   const [columns, setColumns] = React.useState<Array<{key: string, label: string}>>([])
@@ -521,6 +566,34 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
       key,
       label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')
     }))
+  }
+
+  // Apply column configuration to filter visible columns
+  const getVisibleColumns = () => {
+    if (!props.columnConfigs || props.columnConfigs.length === 0) {
+      return columns
+    }
+
+    // Create a map of column configs by key
+    const configMap = new Map<string, ColumnConfig>(
+      props.columnConfigs.map(config => [config.key, config])
+    )
+
+    // Filter columns based on visibility, and apply custom labels
+    return columns
+      .map(col => {
+        const config = configMap.get(col.key)
+        if (config) {
+          return {
+            ...col,
+            label: config.label || col.label,
+            visible: config.visible,
+            width: config.width
+          }
+        }
+        return { ...col, visible: true }
+      })
+      .filter(col => col.visible !== false)
   }
 
   React.useEffect(() => {
@@ -586,46 +659,88 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
     }
   }, [props.dataSource, props.dataSourceType, props.queryId, props.data, props.columns])
 
+  const visibleColumns = getVisibleColumns()
+  const formattingRules = props.formattingRules || []
+
+  // Generate header styles
+  const headerStyle: React.CSSProperties = {
+    backgroundColor: props.headerBackgroundColor || undefined,
+    color: props.headerTextColor || undefined,
+  }
+
+  // Generate hover style variable
+  const rowHoverStyle = props.rowHoverColor 
+    ? { '--row-hover-color': props.rowHoverColor } as React.CSSProperties 
+    : {}
+
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            {columns.map((col) => (
-              <TableHead key={col.key}>{col.label}</TableHead>
+            {visibleColumns.map((col: any) => (
+              <TableHead 
+                key={col.key}
+                style={{
+                  ...headerStyle,
+                  width: col.width || undefined,
+                }}
+              >
+                {col.label}
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>
         <TableBody>
           {loading ? (
             <TableRow>
-              <TableCell colSpan={columns.length} className="text-center text-slate-400">
+              <TableCell colSpan={visibleColumns.length} className="text-center text-slate-400">
                 Loading data...
               </TableCell>
             </TableRow>
           ) : error ? (
             <TableRow>
-              <TableCell colSpan={columns.length} className="text-center text-red-500">
+              <TableCell colSpan={visibleColumns.length} className="text-center text-red-500">
                 Error: {error}
               </TableCell>
             </TableRow>
           ) : data && data.length > 0 ? (
-            data.map((row, idx) => (
-              <TableRow 
-                key={idx}
-                className={`${props.striped && idx % 2 === 1 ? 'bg-slate-50' : ''} ${component.eventHandlers?.onRowClick ? 'cursor-pointer hover:bg-slate-100' : ''}`}
-                onClick={(e) => executeEventHandler(component, 'onRowClick', { row, index: idx, event: e })}
-              >
-                {columns.map((col) => (
-                  <TableCell key={col.key}>
-                    {row[col.key] ?? '-'}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))
+            data.map((row, idx) => {
+              // Get row-level formatting
+              const rowFormatStyle = getRowFormatting(row, formattingRules)
+              const rowCSS = rowFormatStyle ? formatStyleToCSS(rowFormatStyle) : {}
+
+              // Build row style
+              const stripedBg = props.striped && idx % 2 === 1 ? { backgroundColor: '#f8fafc' } : {}
+              const rowStyle = mergeStyles(stripedBg, rowCSS, rowHoverStyle)
+
+              return (
+                <TableRow 
+                  key={idx}
+                  className={component.eventHandlers?.onRowClick ? 'cursor-pointer' : ''}
+                  style={rowStyle}
+                  onClick={(e) => executeEventHandler(component, 'onRowClick', { row, index: idx, event: e })}
+                >
+                  {visibleColumns.map((col: any) => {
+                    // Get cell-level formatting
+                    const cellFormatStyle = getCellFormatting(row, col.key, formattingRules)
+                    const cellCSS = cellFormatStyle ? formatStyleToCSS(cellFormatStyle) : {}
+
+                    return (
+                      <TableCell 
+                        key={col.key}
+                        style={cellCSS}
+                      >
+                        {row[col.key] ?? '-'}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              )
+            })
           ) : (
             <TableRow>
-              <TableCell colSpan={columns.length} className="text-center text-slate-400">
+              <TableCell colSpan={visibleColumns.length} className="text-center text-slate-400">
                 No data
               </TableCell>
             </TableRow>

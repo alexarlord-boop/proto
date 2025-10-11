@@ -9,11 +9,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { FormattingRuleManager } from './FormattingRuleManager'
+import { ColumnConfigManager } from './ColumnConfigManager'
 import type { 
   ComponentInstance, 
   PropertyDefinition, 
   PropertyCategory,
-  EventHandler 
+  EventHandler,
+  TableProps,
+  FormattingRule,
+  ColumnConfig,
 } from './types'
 
 const API_BASE = 'http://localhost:8000'
@@ -46,11 +51,58 @@ export function PropertyPanel({
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([])
   const [jsonEditorValues, setJsonEditorValues] = useState<Record<string, string>>({})
   const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
+  const [availableColumns, setAvailableColumns] = useState<string[]>([])
 
   // Fetch saved queries on mount
   useEffect(() => {
     fetchSavedQueries()
   }, [])
+
+  // Fetch available columns for table components
+  useEffect(() => {
+    if (component?.type === 'Table') {
+      fetchTableColumns()
+    }
+  }, [component])
+
+  const fetchTableColumns = async () => {
+    if (component?.type !== 'Table') return
+
+    const tableProps = (component as any).props as TableProps
+    
+    try {
+      // Try to fetch from query
+      if (tableProps.dataSourceType === 'query' && tableProps.queryId) {
+        const response = await fetch(`${API_BASE}/api/queries/${tableProps.queryId}/execute`)
+        const result = await response.json()
+        if (result.columns) {
+          setAvailableColumns(result.columns.map((c: any) => c.key))
+          return
+        }
+      }
+      
+      // Try to fetch from URL
+      if (tableProps.dataSourceType === 'url' && tableProps.dataSource) {
+        const response = await fetch(tableProps.dataSource)
+        const result = await response.json()
+        const data = Array.isArray(result) ? result : result.data
+        if (data && data.length > 0) {
+          setAvailableColumns(Object.keys(data[0]))
+          return
+        }
+      }
+      
+      // Use static data
+      if (tableProps.dataSourceType === 'static' && tableProps.data && tableProps.data.length > 0) {
+        setAvailableColumns(Object.keys(tableProps.data[0]))
+        return
+      }
+    } catch (error) {
+      console.error('Error fetching table columns:', error)
+    }
+    
+    setAvailableColumns([])
+  }
 
   const fetchSavedQueries = async () => {
     try {
@@ -284,7 +336,11 @@ export function PropertyPanel({
           <div className="space-y-2">
             <Select
               value={currentValue}
-              onValueChange={(value) => onPropertyChange(prop.key, value)}
+              onValueChange={(value) => {
+                onPropertyChange(prop.key, value)
+                // Refresh columns when query changes
+                setTimeout(() => fetchTableColumns(), 500)
+              }}
               disabled={prop.disabled}
             >
               <SelectTrigger className="w-full">
@@ -308,6 +364,43 @@ export function PropertyPanel({
               Open Query Creator
             </button>
           </div>
+        )
+
+      case 'color':
+        return (
+          <div className="flex gap-2">
+            <Input
+              type="color"
+              value={currentValue || '#ffffff'}
+              onChange={(e) => onPropertyChange(prop.key, e.target.value)}
+              className="w-16 h-9 p-1"
+            />
+            <Input
+              type="text"
+              value={currentValue || ''}
+              onChange={(e) => onPropertyChange(prop.key, e.target.value)}
+              placeholder={prop.placeholder || '#ffffff'}
+              className="flex-1"
+            />
+          </div>
+        )
+
+      case 'formatting-rules':
+        return (
+          <FormattingRuleManager
+            rules={(currentValue as FormattingRule[]) || []}
+            columns={availableColumns}
+            onChange={(rules) => onPropertyChange(prop.key, rules)}
+          />
+        )
+
+      case 'column-config':
+        return (
+          <ColumnConfigManager
+            columns={(currentValue as ColumnConfig[]) || []}
+            availableColumns={availableColumns}
+            onChange={(columns) => onPropertyChange(prop.key, columns)}
+          />
         )
 
       default:

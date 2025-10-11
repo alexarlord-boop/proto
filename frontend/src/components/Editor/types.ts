@@ -16,6 +16,8 @@ export type PropertyEditorType =
   | 'code'      // Code editor
   | 'event'     // Event handler (method)
   | 'query-select'  // SQL query selector
+  | 'formatting-rules'  // Visual formatting rules manager
+  | 'column-config'     // Visual column configuration manager
 
 // Property category - for organizing properties in the editor
 export type PropertyCategory = 'data' | 'methods' | 'layout' | 'style'
@@ -93,6 +95,42 @@ export interface SelectProps {
   disabled?: boolean
 }
 
+// Formatting rule condition for fuzzy logic
+export interface FormatCondition {
+  column: string  // Column to check
+  operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'notContains' | 'startsWith' | 'endsWith' | 'isEmpty' | 'isNotEmpty'
+  value?: any  // Value to compare (not needed for isEmpty/isNotEmpty)
+  logic?: 'AND' | 'OR'  // Logic operator to combine with next condition
+}
+
+// Formatting style to apply when conditions match
+export interface FormatStyle {
+  backgroundColor?: string
+  textColor?: string
+  fontWeight?: 'normal' | 'bold' | 'bolder'
+  fontStyle?: 'normal' | 'italic'
+  textDecoration?: 'none' | 'underline' | 'line-through'
+}
+
+// Complete formatting rule
+export interface FormattingRule {
+  id: string
+  name: string
+  target: 'row' | 'cell'  // Apply to entire row or specific cell
+  targetColumn?: string  // Required if target is 'cell'
+  conditions: FormatCondition[]
+  style: FormatStyle
+  enabled: boolean
+}
+
+// Column configuration with visibility
+export interface ColumnConfig {
+  key: string
+  label: string
+  visible: boolean
+  width?: string
+}
+
 export interface TableProps {
   columns?: Array<{
     key: string
@@ -104,6 +142,12 @@ export interface TableProps {
   data?: Array<Record<string, any>>  // Optional - only for static data
   striped?: boolean
   bordered?: boolean
+  // Enhanced formatting properties
+  columnConfigs?: ColumnConfig[]  // Column visibility and configuration
+  formattingRules?: FormattingRule[]  // Logic-based formatting rules
+  headerBackgroundColor?: string
+  headerTextColor?: string
+  rowHoverColor?: string
 }
 
 export interface ContainerProps {
