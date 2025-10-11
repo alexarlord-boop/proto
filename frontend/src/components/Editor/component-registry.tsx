@@ -29,7 +29,6 @@ import type {
   GridProps,
   StackProps,
   PaletteComponentDefinition,
-  ColumnConfig,
 } from './types'
 
 // Simple SVG icons for components
@@ -569,31 +568,32 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
   }
 
   // Apply column configuration to filter visible columns
-  const getVisibleColumns = () => {
+  const getVisibleColumns = (): Array<{ key: string; label: string; width?: string }> => {
     if (!props.columnConfigs || props.columnConfigs.length === 0) {
       return columns
     }
 
-    // Create a map of column configs by key
-    const configMap = new Map<string, ColumnConfig>(
-      props.columnConfigs.map(config => [config.key, config])
-    )
-
-    // Filter columns based on visibility, and apply custom labels
-    return columns
-      .map(col => {
-        const config = configMap.get(col.key)
-        if (config) {
-          return {
-            ...col,
-            label: config.label || col.label,
-            visible: config.visible,
-            width: config.width
-          }
-        }
-        return { ...col, visible: true }
-      })
-      .filter(col => col.visible !== false)
+    // Use columnConfigs order if available, otherwise fall back to columns order
+    // This ensures user-defined ordering is respected
+    const columnsMap = new Map(columns.map(col => [col.key, col]))
+    
+    const result: Array<{ key: string; label: string; width?: string }> = []
+    
+    for (const config of props.columnConfigs) {
+      // Skip hidden columns
+      if (config.visible === false) continue
+      
+      const originalCol = columnsMap.get(config.key)
+      if (originalCol) {
+        result.push({
+          key: config.key,
+          label: config.label || originalCol.label,
+          width: config.width
+        })
+      }
+    }
+    
+    return result
   }
 
   React.useEffect(() => {
@@ -729,7 +729,11 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
                     return (
                       <TableCell 
                         key={col.key}
-                        style={cellCSS}
+                        style={{
+                          ...cellCSS,
+                          width: col.width || undefined,
+                          minWidth: col.width || undefined,
+                        }}
                       >
                         {row[col.key] ?? '-'}
                       </TableCell>
