@@ -175,9 +175,11 @@ interface DnDCanvasProps {
   selectedId: string | null
   onDelete: (id: string) => void
   onSelect: (id: string | null) => void
+  showGrid?: boolean
+  gridSize?: number
 }
 
-export function DnDCanvas({ items, canvasRef, selectedId, onDelete, onSelect }: DnDCanvasProps) {
+export function DnDCanvas({ items, canvasRef, selectedId, onDelete, onSelect, showGrid = false, gridSize = 20 }: DnDCanvasProps) {
   const { setNodeRef } = useDroppable({
     id: 'canvas',
     data: {
@@ -187,6 +189,15 @@ export function DnDCanvas({ items, canvasRef, selectedId, onDelete, onSelect }: 
 
   // Only render top-level items (items without a parentId)
   const topLevelItems = items.filter(item => !item.parentId)
+
+  // Generate grid background style
+  const gridStyle = showGrid ? {
+    backgroundImage: `
+      linear-gradient(to right, rgba(148, 163, 184, 0.15) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(148, 163, 184, 0.15) 1px, transparent 1px)
+    `,
+    backgroundSize: `${gridSize}px ${gridSize}px`,
+  } : {}
 
   return (
     <div
@@ -198,6 +209,7 @@ export function DnDCanvas({ items, canvasRef, selectedId, onDelete, onSelect }: 
         }
       }}
       className="relative w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl shadow-2xl overflow-auto border-2 border-slate-300"
+      style={gridStyle}
       onClick={() => onSelect(null)}
     >
       {topLevelItems.length === 0 && (

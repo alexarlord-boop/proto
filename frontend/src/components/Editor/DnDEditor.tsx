@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -7,16 +7,20 @@ import {
   useSensors,
   rectIntersection,
 } from '@dnd-kit/core'
-import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
+import type { DragStartEvent, DragEndEvent, Modifier } from '@dnd-kit/core'
 import { DnDPalette } from './DnDPalette'
 import { DnDCanvas } from './DnDCanvas'
 import { PropertyPanel } from './PropertyPanel'
 import { COMPONENT_REGISTRY, LAYOUT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
 import { Button } from '@/components/ui/button'
-import { Save, Home, Maximize2 } from 'lucide-react'
+import { Save, Home, Maximize2, Grid3x3, Download } from 'lucide-react'
 import { FullScreenPreview } from './FullScreenPreview'
 import { CanvasPreview } from './CanvasPreview'
+import { Toggle } from '@/components/ui/toggle'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { RadioGroup } from '@/components/ui/radio-group'
 
 interface DnDEditorProps {
   projectId?: string
@@ -32,8 +36,78 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
+  const [exportFormat, setExportFormat] = useState<'static' | 'fullstack'>('static')
+  const [exportDataStrategy, setExportDataStrategy] = useState<'snapshot' | 'live'>('snapshot')
+  const [exporting, setExporting] = useState(false)
+  const [snapToGrid, setSnapToGrid] = useState(true)
+  const [gridSize, setGridSize] = useState(20)
   const nextIdRef = useRef(1)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Snap to grid utility function for final position calculations
+  const snapToGridFn = (x: number, y: number): { x: number; y: number } => {
+    if (!snapToGrid) return { x, y }
+    return {
+      x: Math.round(x / gridSize) * gridSize,
+      y: Math.round(y / gridSize) * gridSize,
+    }
+  }
+
+  // Create a custom snap-to-grid modifier that works with absolute positioning
+  const createSnapToGridModifier = (gridSize: number): Modifier => {
+    return ({ transform, active, draggingNodeRect }) => {
+      if (!draggingNodeRect) {
+        return transform
+      }
+
+      // Get the component's current position if it exists
+      const activeData = active.data.current
+      let baseX = 0
+      let baseY = 0
+
+      // For canvas items that already exist, get their base position
+      if (activeData?.type === 'canvas-item') {
+        const draggedId = active.id as string
+        const findComponent = (items: ComponentInstance[]): ComponentInstance | null => {
+          for (const item of items) {
+            if (item.id === draggedId) return item
+            if (item.children) {
+              const found = findComponent(item.children)
+              if (found) return found
+            }
+          }
+          return null
+        }
+        const component = findComponent(items)
+        if (component && !component.parentId) {
+          baseX = component.position.x
+          baseY = component.position.y
+        }
+      }
+
+      // Calculate the new absolute position
+      const newX = baseX + transform.x
+      const newY = baseY + transform.y
+
+      // Snap to grid
+      const snappedX = Math.round(newX / gridSize) * gridSize
+      const snappedY = Math.round(newY / gridSize) * gridSize
+
+      // Return the delta that will result in the snapped position
+      return {
+        ...transform,
+        x: snappedX - baseX,
+        y: snappedY - baseY,
+      }
+    }
+  }
+
+  // Create modifiers array based on snap settings
+  const modifiers = useMemo(() => {
+    if (!snapToGrid) return []
+    return [createSnapToGridModifier(gridSize)]
+  }, [snapToGrid, gridSize, items])
 
   // Load project data if projectId is provided
   useEffect(() => {
@@ -249,15 +323,15 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           const dropX = activatorEvent.clientX + delta.x - canvasBounds.left
           const dropY = activatorEvent.clientY + delta.y - canvasBounds.top
 
+          // Apply snap to grid
+          const snappedPosition = snapToGridFn(Math.max(0, dropX), Math.max(0, dropY))
+
           // Create new component instance with metadata and default props
           const newComponent: ComponentInstance = {
             id: `component-${nextIdRef.current++}`,
             type: dragData.componentType,
             label: dragData.label,
-            position: {
-              x: Math.max(0, dropX),
-              y: Math.max(0, dropY),
-            },
+            position: snappedPosition,
             props: dragData.defaultProps,
           } as ComponentInstance
 
@@ -296,14 +370,14 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
               const dropX = activatorEvent.clientX + delta.x - canvasBounds.left
               const dropY = activatorEvent.clientY + delta.y - canvasBounds.top
               
+              // Apply snap to grid
+              const snappedPosition = snapToGridFn(Math.max(0, dropX), Math.max(0, dropY))
+              
               let updated = removeComponent(items, draggedId)
               const topLevelComponent = {
                 ...draggedComponent,
                 parentId: undefined,
-                position: {
-                  x: Math.max(0, dropX),
-                  y: Math.max(0, dropY),
-                }
+                position: snappedPosition
               }
               return [...updated, topLevelComponent]
             } else {
@@ -322,12 +396,13 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           const updatePosition = (items: ComponentInstance[]): ComponentInstance[] => {
             return items.map((item) => {
               if (item.id === draggedId) {
+                const newX = Math.max(0, item.position.x + delta.x)
+                const newY = Math.max(0, item.position.y + delta.y)
+                const snappedPosition = snapToGridFn(newX, newY)
+                
                 return {
                   ...item,
-                  position: {
-                    x: Math.max(0, item.position.x + delta.x),
-                    y: Math.max(0, item.position.y + delta.y),
-                  },
+                  position: snappedPosition,
                   // Explicitly preserve children to avoid any spread issues
                   children: item.children,
                 }
@@ -496,6 +571,50 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
     )
   }
 
+  const handleExport = async () => {
+    if (!projectId) {
+      alert('Please save the project before exporting')
+      return
+    }
+
+    setExporting(true)
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/projects/${projectId}/export?format=${exportFormat}&data_strategy=${exportDataStrategy}`,
+        { method: 'POST' }
+      )
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        
+        // Set filename based on format
+        const filename = exportFormat === 'static' 
+          ? `${projectName || 'project'}.html`
+          : `${projectName || 'project'}.zip`
+        a.download = filename
+        
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+        
+        setIsExportDialogOpen(false)
+        console.log('Project exported successfully')
+      } else {
+        const error = await response.json()
+        alert(`Export failed: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Failed to export project:', error)
+      alert('Export failed. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   // Get selected component data (search recursively for nested components)
   const findComponentById = (items: ComponentInstance[], id: string): ComponentInstance | null => {
     for (const item of items) {
@@ -544,7 +663,44 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
+          {/* Grid Controls */}
+          <div className="flex items-center gap-3 border-r border-slate-600 pr-4">
+            <div className="flex items-center gap-2">
+              <Toggle
+                pressed={snapToGrid}
+                onPressedChange={setSnapToGrid}
+                variant="outline"
+                size="sm"
+                className="data-[state=on]:bg-blue-600 data-[state=on]:text-white data-[state=on]:border-blue-600 border-slate-500 bg-slate-700 text-slate-300 hover:bg-slate-600"
+              >
+                <Grid3x3 className="w-4 h-4" />
+                <span className="text-sm">Snap to Grid</span>
+              </Toggle>
+            </div>
+            {snapToGrid && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Grid:</span>
+                <Select 
+                  value={gridSize.toString()} 
+                  onValueChange={(value) => setGridSize(parseInt(value))}
+                >
+                  <SelectTrigger className="w-[80px] h-8 bg-slate-700 border-slate-600 text-white text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10px</SelectItem>
+                    <SelectItem value="20">20px</SelectItem>
+                    <SelectItem value="25">25px</SelectItem>
+                    <SelectItem value="30">30px</SelectItem>
+                    <SelectItem value="40">40px</SelectItem>
+                    <SelectItem value="50">50px</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
           <Button
             onClick={() => setIsPreviewOpen(true)}
             variant="outline"
@@ -556,15 +712,27 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           </Button>
           
           {projectId && (
-            <Button
-              onClick={saveProject}
-              disabled={saving}
-              className="bg-blue-600 hover:bg-blue-700"
-              size="sm"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
+            <>
+              <Button
+                onClick={() => setIsExportDialogOpen(true)}
+                variant="outline"
+                size="sm"
+                className="border-green-500 bg-green-600 text-white hover:bg-green-700 hover:border-green-400"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export
+              </Button>
+              
+              <Button
+                onClick={saveProject}
+                disabled={saving}
+                className="bg-blue-600 hover:bg-blue-700"
+                size="sm"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -577,6 +745,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             collisionDetection={rectIntersection}
+            modifiers={modifiers}
           >
             {/* Palette Sidebar */}
             <div className="w-64 flex-shrink-0">
@@ -591,6 +760,8 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                 selectedId={selectedComponentId}
                 onDelete={handleDelete}
                 onSelect={handleSelect}
+                showGrid={snapToGrid}
+                gridSize={gridSize}
               />
             </div>
 
@@ -631,6 +802,181 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           onPositionChange={handlePreviewPositionChange}
         />
       </FullScreenPreview>
+
+      {/* Export Dialog */}
+      {isExportDialogOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-200">
+              <h2 className="text-xl font-semibold text-slate-900">Export Project</h2>
+              <p className="text-sm text-slate-600 mt-1">
+                Create a distributable version of your application
+              </p>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Export Format */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-3">
+                  Export Format
+                </label>
+                <div className="space-y-3">
+                  <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                    <input
+                      type="radio"
+                      name="format"
+                      value="static"
+                      checked={exportFormat === 'static'}
+                      onChange={(e) => setExportFormat(e.target.value as 'static')}
+                      className="mt-1 mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-900">Static Bundle (HTML)</div>
+                      <div className="text-sm text-slate-600 mt-1">
+                        Single HTML file that can be opened in any browser. Perfect for simple deployments to static hosts like Vercel, Netlify, or GitHub Pages.
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                          Recommended
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                          No dependencies
+                        </span>
+                      </div>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                    <input
+                      type="radio"
+                      name="format"
+                      value="fullstack"
+                      checked={exportFormat === 'fullstack'}
+                      onChange={(e) => setExportFormat(e.target.value as 'fullstack')}
+                      className="mt-1 mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-900">Full-Stack Package (ZIP)</div>
+                      <div className="text-sm text-slate-600 mt-1">
+                        Complete application with frontend + backend + database connections. Includes Docker setup for easy deployment.
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                          Advanced
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                          Requires setup
+                        </span>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Data Strategy */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-3">
+                  Data Strategy
+                </label>
+                <div className="space-y-3">
+                  <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                    <input
+                      type="radio"
+                      name="data"
+                      value="snapshot"
+                      checked={exportDataStrategy === 'snapshot'}
+                      onChange={(e) => setExportDataStrategy(e.target.value as 'snapshot')}
+                      className="mt-1 mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-900">Snapshot Data</div>
+                      <div className="text-sm text-slate-600 mt-1">
+                        Execute all queries now and embed current results. App works offline but data is static.
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                          Works offline
+                        </span>
+                      </div>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                    <input
+                      type="radio"
+                      name="data"
+                      value="live"
+                      checked={exportDataStrategy === 'live'}
+                      onChange={(e) => setExportDataStrategy(e.target.value as 'live')}
+                      className="mt-1 mr-3"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-900">Live Queries</div>
+                      <div className="text-sm text-slate-600 mt-1">
+                        Keep API calls to backend server. Data stays fresh but requires backend to be running.
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                          Dynamic data
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                          Requires backend
+                        </span>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Info Box */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3 flex-1">
+                    <h3 className="text-sm font-medium text-blue-800">
+                      Export includes:
+                    </h3>
+                    <div className="mt-2 text-sm text-blue-700">
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>All components and their configurations</li>
+                        <li>Event handlers and custom logic</li>
+                        <li>Layout and styling</li>
+                        <li>
+                          {exportDataStrategy === 'snapshot' 
+                            ? 'Current query results (static data)' 
+                            : 'Query configurations (dynamic data)'}
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-slate-200 flex gap-3 justify-end bg-slate-50">
+              <Button
+                variant="outline"
+                onClick={() => setIsExportDialogOpen(false)}
+                disabled={exporting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleExport}
+                disabled={exporting}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                {exporting ? 'Exporting...' : 'Export Project'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

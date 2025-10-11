@@ -1,11 +1,16 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import uuid
 import json
+import os
+import tempfile
+import shutil
+import zipfile
 
 from database import get_db, init_db, DBConnector, SQLQuery, Project
 from db_manager import db_manager
@@ -20,6 +25,12 @@ async def startup_event():
 
 origins = [
     "http://localhost:5173",
+    "http://localhost:3000",  # Common local server port
+    "http://localhost:8080",  # Another common port
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8080",
+    "null",  # Allow file:// protocol (for exported HTML files opened locally)
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -616,3 +627,706 @@ async def delete_project(project_id: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": "Project deleted successfully"}
+
+
+@app.post("/api/projects/{project_id}/export")
+async def export_project(
+    project_id: str,
+    format: str = "static",  # "static" or "fullstack"
+    data_strategy: str = "snapshot",  # "snapshot" or "live"
+    db: Session = Depends(get_db)
+):
+    """
+    Export a project as a distributable artifact
+    
+    - format: 'static' (single HTML file) or 'fullstack' (ZIP with backend)
+    - data_strategy: 'snapshot' (embed current data) or 'live' (keep API calls)
+    """
+    try:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        components = json.loads(project.components)
+        
+        if format == "static":
+            # Generate standalone HTML file
+            html_content = generate_static_bundle(
+                project_name=project.name,
+                components=components,
+                data_strategy=data_strategy,
+                db=db
+            )
+            
+            return Response(
+                content=html_content,
+                media_type="text/html",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{project.name.replace(" ", "_")}.html"'
+                }
+            )
+        
+        elif format == "fullstack":
+            # Generate full-stack ZIP package
+            zip_path = generate_fullstack_bundle(
+                project_name=project.name,
+                components=components,
+                project_id=project_id,
+                db=db
+            )
+            
+            return FileResponse(
+                zip_path,
+                media_type="application/zip",
+                filename=f"{project.name.replace(' ', '_')}.zip",
+                background=None  # Delete file after sending
+            )
+        
+        else:
+            raise HTTPException(status_code=400, detail="Invalid export format")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Export error: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+def generate_static_bundle(
+    project_name: str,
+    components: List[dict],
+    data_strategy: str,
+    db: Session
+) -> str:
+    """Generate a standalone HTML file with embedded React app"""
+    
+    # If snapshot mode, fetch all query data
+    snapshot_data = {}
+    if data_strategy == "snapshot":
+        for component in components:
+            if component.get("type") == "Table":
+                query_id = component.get("props", {}).get("queryId")
+                if query_id and query_id not in snapshot_data:
+                    # Fetch query data
+                    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+                    if query:
+                        connector = db.query(DBConnector).filter(
+                            DBConnector.id == query.connector_id
+                        ).first()
+                        if connector:
+                            connector_dict = {
+                                "id": connector.id,
+                                "db_type": connector.db_type,
+                                "host": connector.host,
+                                "port": connector.port,
+                                "database": connector.database,
+                                "username": connector.username,
+                                "password": connector.password,
+                                "connection_string": connector.connection_string
+                            }
+                            result = db_manager.execute_query(
+                                query.sql_query,
+                                connector_dict,
+                                limit=1000
+                            )
+                            if result["success"]:
+                                snapshot_data[query_id] = result.get("data", [])
+    
+    # Generate HTML content
+    html_template = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{project_name}</title>
+  
+  <!-- Tailwind CSS (via CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM (via CDN) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <style>
+    /* Custom styles */
+    body {{
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }}
+    
+    * {{
+      box-sizing: border-box;
+    }}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel" data-type="module">
+    const {{ useState, useEffect }} = React;
+    
+    // Component data (injected during export)
+    const COMPONENTS = {json.dumps(components)};
+    const PROJECT_NAME = {json.dumps(project_name)};
+    const DATA_STRATEGY = {json.dumps(data_strategy)};
+    const SNAPSHOT_DATA = {json.dumps(snapshot_data)};
+    
+    // Component renderers
+    function Button({{ text, variant, size, disabled, onClick }}) {{
+      const variantClasses = {{
+        default: 'bg-slate-900 text-white hover:bg-slate-800',
+        destructive: 'bg-red-600 text-white hover:bg-red-700',
+        outline: 'border border-slate-300 bg-white hover:bg-slate-50',
+        secondary: 'bg-slate-200 text-slate-900 hover:bg-slate-300',
+        ghost: 'hover:bg-slate-100',
+        link: 'text-blue-600 underline hover:text-blue-700',
+      }};
+      
+      const sizeClasses = {{
+        default: 'px-4 py-2 text-sm',
+        sm: 'px-3 py-1.5 text-xs',
+        lg: 'px-6 py-3 text-base',
+        icon: 'p-2',
+      }};
+      
+      return (
+        <button
+          onClick={{onClick}}
+          disabled={{disabled}}
+          className={{`rounded-md font-medium transition-colors ${{variantClasses[variant || 'default']}} ${{sizeClasses[size || 'default']}} ${{disabled ? 'opacity-50 cursor-not-allowed' : ''}}`}}
+        >
+          {{text}}
+        </button>
+      );
+    }}
+    
+    function Input({{ placeholder, type, defaultValue, disabled }}) {{
+      const [value, setValue] = useState(defaultValue || '');
+      
+      return (
+        <input
+          type={{type || 'text'}}
+          value={{value}}
+          onChange={{(e) => setValue(e.target.value)}}
+          placeholder={{placeholder}}
+          disabled={{disabled}}
+          className="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+        />
+      );
+    }}
+    
+    function Select({{ placeholder, options, defaultValue, disabled }}) {{
+      const [value, setValue] = useState(defaultValue || '');
+      
+      return (
+        <select
+          value={{value}}
+          onChange={{(e) => setValue(e.target.value)}}
+          disabled={{disabled}}
+          className="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-full"
+        >
+          <option value="">{{placeholder}}</option>
+          {{options?.map((opt) => (
+            <option key={{opt.value}} value={{opt.value}}>
+              {{opt.label}}
+            </option>
+          ))}}
+        </select>
+      );
+    }}
+    
+    function DataTable({{ columns, data, dataSource, dataSourceType, queryId, striped, bordered }}) {{
+      const [tableData, setTableData] = useState(data || []);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+      
+      useEffect(() => {{
+        // If snapshot mode and we have snapshot data, use it
+        if (DATA_STRATEGY === 'snapshot' && queryId && SNAPSHOT_DATA[queryId]) {{
+          setTableData(SNAPSHOT_DATA[queryId]);
+        }}
+        // Otherwise try to fetch live data
+        else if (dataSourceType === 'query' && queryId) {{
+          fetchQueryData(queryId);
+        }} else if (dataSourceType === 'url' && dataSource) {{
+          fetchUrlData(dataSource);
+        }}
+      }}, [dataSourceType, queryId, dataSource]);
+      
+      const fetchQueryData = async (id) => {{
+        setLoading(true);
+        try {{
+          const response = await fetch(`http://localhost:8000/api/queries/${{id}}/execute`);
+          const result = await response.json();
+          setTableData(result.data || []);
+        }} catch (err) {{
+          setError('Failed to load data');
+          console.error(err);
+        }} finally {{
+          setLoading(false);
+        }}
+      }};
+      
+      const fetchUrlData = async (url) => {{
+        setLoading(true);
+        try {{
+          const response = await fetch(url);
+          const result = await response.json();
+          setTableData(result.data || result);
+        }} catch (err) {{
+          setError('Failed to load data');
+          console.error(err);
+        }} finally {{
+          setLoading(false);
+        }}
+      }};
+      
+      if (loading) {{
+        return <div className="p-4 text-slate-600">Loading...</div>;
+      }}
+      
+      if (error) {{
+        return <div className="p-4 text-red-600">{{error}}</div>;
+      }}
+      
+      if (!tableData || tableData.length === 0) {{
+        return <div className="p-4 text-slate-400">No data available</div>;
+      }}
+      
+      const derivedColumns = columns || Object.keys(tableData[0] || {{}}).map(key => ({{
+        key,
+        label: key.charAt(0).toUpperCase() + key.slice(1)
+      }}));
+      
+      return (
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className={{`w-full text-sm ${{bordered ? 'border-collapse' : ''}}`}}>
+            <thead className="bg-slate-100">
+              <tr>
+                {{derivedColumns.map((col) => (
+                  <th key={{col.key}} className={{`px-4 py-2 text-left font-medium text-slate-700 ${{bordered ? 'border border-slate-200' : ''}}`}}>
+                    {{col.label}}
+                  </th>
+                ))}}
+              </tr>
+            </thead>
+            <tbody>
+              {{tableData.map((row, idx) => (
+                <tr key={{idx}} className={{`${{striped && idx % 2 === 1 ? 'bg-slate-50' : ''}}`}}>
+                  {{derivedColumns.map((col) => (
+                    <td key={{col.key}} className={{`px-4 py-2 text-slate-600 ${{bordered ? 'border border-slate-200' : ''}}`}}>
+                      {{row[col.key] !== null && row[col.key] !== undefined ? String(row[col.key]) : '-'}}
+                    </td>
+                  ))}}
+                </tr>
+              ))}}
+            </tbody>
+          </table>
+        </div>
+      );
+    }}
+    
+    function TabsComponent({{ tabs, defaultValue }}) {{
+      const [activeTab, setActiveTab] = useState(defaultValue || tabs?.[0]?.value || '');
+      
+      return (
+        <div className="w-full">
+          <div className="border-b border-slate-200">
+            <div className="flex gap-1">
+              {{tabs?.map((tab) => (
+                <button
+                  key={{tab.value}}
+                  onClick={{() => setActiveTab(tab.value)}}
+                  className={{`px-4 py-2 text-sm font-medium transition-colors ${{
+                    activeTab === tab.value
+                      ? 'border-b-2 border-blue-600 text-blue-600'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }}`}}
+                >
+                  {{tab.label}}
+                </button>
+              ))}}
+            </div>
+          </div>
+          <div className="p-4">
+            {{tabs?.find(t => t.value === activeTab)?.content || ''}}
+          </div>
+        </div>
+      );
+    }}
+    
+    function Container({{ padding, backgroundColor, children }}) {{
+      const style = {{
+        padding: padding || '16px',
+        backgroundColor: backgroundColor || 'transparent',
+      }};
+      
+      return (
+        <div style={{style}} className="rounded-lg">
+          {{children}}
+        </div>
+      );
+    }}
+    
+    function Grid({{ columns, gap, children }}) {{
+      const style = {{
+        display: 'grid',
+        gridTemplateColumns: `repeat(${{columns || 2}}, 1fr)`,
+        gap: gap || '16px',
+      }};
+      
+      return <div style={{style}}>{{children}}</div>;
+    }}
+    
+    function Stack({{ direction, gap, align, children }}) {{
+      const style = {{
+        display: 'flex',
+        flexDirection: direction === 'horizontal' ? 'row' : 'column',
+        gap: gap || '8px',
+        alignItems: align || 'stretch',
+      }};
+      
+      return <div style={{style}}>{{children}}</div>;
+    }}
+    
+    // Component renderer
+    function renderComponent(component) {{
+      const executeEventHandler = (code) => {{
+        try {{
+          const fn = new Function('component', 'event', code);
+          return (e) => fn(component, e);
+        }} catch (err) {{
+          console.error('Error executing event handler:', err);
+          return () => {{}};
+        }}
+      }};
+      
+      const commonProps = {{}};
+      if (component.eventHandlers?.onClick) {{
+        commonProps.onClick = executeEventHandler(component.eventHandlers.onClick.code);
+      }}
+      
+      switch (component.type) {{
+        case 'Button':
+          return <Button {{...component.props}} {{...commonProps}} />;
+        case 'Input':
+          return <Input {{...component.props}} />;
+        case 'Select':
+          return <Select {{...component.props}} />;
+        case 'Table':
+          return <DataTable {{...component.props}} />;
+        case 'Tabs':
+          return <TabsComponent {{...component.props}} />;
+        case 'Container':
+          return (
+            <Container {{...component.props}}>
+              {{component.children?.map(child => (
+                <div key={{child.id}} style={{{{ position: 'relative' }}}}>
+                  {{renderComponent(child)}}
+                </div>
+              ))}}
+            </Container>
+          );
+        case 'Grid':
+          return (
+            <Grid {{...component.props}}>
+              {{component.children?.map(child => renderComponent(child))}}
+            </Grid>
+          );
+        case 'Stack':
+          return (
+            <Stack {{...component.props}}>
+              {{component.children?.map(child => renderComponent(child))}}
+            </Stack>
+          );
+        default:
+          return <div>Unknown component: {{component.type}}</div>;
+      }}
+    }}
+    
+    // Main App component
+    function App() {{
+      return (
+        <div className="w-full min-h-screen bg-gradient-to-br from-white to-slate-50">
+          <div className="relative w-full min-h-screen">
+            {{COMPONENTS.map((component) => {{
+              if (component.parentId) return null;
+              
+              const style = {{
+                position: 'absolute',
+                left: `${{component.position.x}}px`,
+                top: `${{component.position.y}}px`,
+                width: component.width ? `${{component.width}}px` : undefined,
+                height: component.height ? `${{component.height}}px` : undefined,
+              }};
+              
+              return (
+                <div key={{component.id}} style={{style}}>
+                  {{renderComponent(component)}}
+                </div>
+              );
+            }})}}
+          </div>
+        </div>
+      );
+    }}
+    
+    // Render the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+  
+  <!-- Babel standalone for JSX transformation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</body>
+</html>"""
+    
+    return html_template
+
+
+def generate_fullstack_bundle(
+    project_name: str,
+    components: List[dict],
+    project_id: str,
+    db: Session
+) -> str:
+    """Generate a full-stack ZIP package with frontend + backend"""
+    
+    # Create temporary directory
+    temp_dir = tempfile.mkdtemp()
+    project_dir = os.path.join(temp_dir, project_name.replace(" ", "_"))
+    os.makedirs(project_dir)
+    
+    # Create directory structure
+    frontend_dir = os.path.join(project_dir, "frontend")
+    backend_dir = os.path.join(project_dir, "backend")
+    os.makedirs(frontend_dir)
+    os.makedirs(backend_dir)
+    
+    # Generate frontend (same as static bundle but without snapshot data)
+    frontend_html = generate_static_bundle(
+        project_name=project_name,
+        components=components,
+        data_strategy="live",  # Always use live data for fullstack
+        db=db
+    )
+    with open(os.path.join(frontend_dir, "index.html"), "w") as f:
+        f.write(frontend_html)
+    
+    # Generate minimal backend
+    # Collect all queries used in the project
+    query_ids = set()
+    for component in components:
+        if component.get("type") == "Table":
+            query_id = component.get("props", {}).get("queryId")
+            if query_id:
+                query_ids.add(query_id)
+    
+    # Fetch query and connector data
+    queries_data = []
+    connectors_data = {}
+    
+    for query_id in query_ids:
+        query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+        if query:
+            connector = db.query(DBConnector).filter(
+                DBConnector.id == query.connector_id
+            ).first()
+            if connector:
+                queries_data.append({
+                    "id": query.id,
+                    "name": query.name,
+                    "sql_query": query.sql_query,
+                    "connector_id": query.connector_id
+                })
+                connectors_data[connector.id] = {
+                    "id": connector.id,
+                    "name": connector.name,
+                    "db_type": connector.db_type,
+                    "host": connector.host,
+                    "port": connector.port,
+                    "database": connector.database,
+                    "username": connector.username,
+                    "password": connector.password
+                }
+    
+    # Write queries.json
+    with open(os.path.join(backend_dir, "queries.json"), "w") as f:
+        json.dump({
+            "queries": queries_data,
+            "connectors": list(connectors_data.values())
+        }, f, indent=2)
+    
+    # Write mini backend main.py
+    backend_code = '''from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import create_engine, text
+import json
+from pathlib import Path
+
+app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Load queries and connectors
+with open(Path(__file__).parent / "queries.json") as f:
+    data = json.load(f)
+    QUERIES = {q["id"]: q for q in data["queries"]}
+    CONNECTORS = {c["id"]: c for c in data["connectors"]}
+
+# Create database engines
+ENGINES = {}
+
+def get_engine(connector_id):
+    if connector_id in ENGINES:
+        return ENGINES[connector_id]
+    
+    connector = CONNECTORS.get(connector_id)
+    if not connector:
+        return None
+    
+    db_type = connector["db_type"]
+    if db_type == "sqlite":
+        conn_str = f"sqlite:///{connector['database']}"
+    elif db_type == "postgresql":
+        conn_str = f"postgresql://{connector['username']}:{connector['password']}@{connector['host']}:{connector['port']}/{connector['database']}"
+    elif db_type == "mysql":
+        conn_str = f"mysql+pymysql://{connector['username']}:{connector['password']}@{connector['host']}:{connector['port']}/{connector['database']}"
+    else:
+        return None
+    
+    engine = create_engine(conn_str)
+    ENGINES[connector_id] = engine
+    return engine
+
+@app.get("/api/queries/{{query_id}}/execute")
+async def execute_query(query_id: str, limit: int = 1000):
+    query = QUERIES.get(query_id)
+    if not query:
+        raise HTTPException(status_code=404, detail="Query not found")
+    
+    engine = get_engine(query["connector_id"])
+    if not engine:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text(query["sql_query"]))
+            rows = result.fetchmany(limit)
+            columns = [{"key": col, "label": col.title()} for col in result.keys()]
+            data = [dict(row._mapping) for row in rows]
+            
+        return {
+            "columns": columns,
+            "data": data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/")
+async def root():
+    return {"message": "Project backend is running", "queries": len(QUERIES)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+'''
+    with open(os.path.join(backend_dir, "main.py"), "w") as f:
+        f.write(backend_code)
+    
+    # Write requirements.txt
+    with open(os.path.join(backend_dir, "requirements.txt"), "w") as f:
+        f.write("""fastapi==0.104.1
+uvicorn==0.24.0
+sqlalchemy==2.0.23
+pymysql==1.1.0
+psycopg2-binary==2.9.9
+""")
+    
+    # Write README.md
+    readme = f"""# {project_name} - Exported Project
+
+## Quick Start
+
+### Option 1: Static Frontend Only
+Open `frontend/index.html` in your browser to view the app.
+Note: This requires the backend to be running for live data.
+
+### Option 2: Full Stack (Frontend + Backend)
+
+1. **Start the Backend:**
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   python main.py
+   ```
+
+2. **Open Frontend:**
+   Open `frontend/index.html` in your browser
+
+3. **Access the app at:** `http://localhost:8000` (or open index.html)
+
+### Option 3: Docker (Coming Soon)
+
+```bash
+docker-compose up
+```
+
+## Configuration
+
+### Database Connections
+Edit `backend/queries.json` to update database connection strings.
+
+### Queries
+All queries are stored in `backend/queries.json`.
+
+## Deployment
+
+### Static Frontend
+Deploy `frontend/index.html` to any static host:
+- Vercel
+- Netlify  
+- GitHub Pages
+- AWS S3
+
+### Backend
+Deploy `backend/` to:
+- Heroku
+- Railway
+- AWS EC2/Lambda
+- Digital Ocean
+
+## Project Info
+- **Name:** {project_name}
+- **Components:** {len(components)}
+- **Queries:** {len(query_ids)}
+- **Exported:** {datetime.utcnow().isoformat()}
+"""
+    with open(os.path.join(project_dir, "README.md"), "w") as f:
+        f.write(readme)
+    
+    # Create ZIP file
+    zip_path = os.path.join(temp_dir, f"{project_name.replace(' ', '_')}.zip")
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(project_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, temp_dir)
+                zipf.write(file_path, arcname)
+    
+    # Clean up project directory (keep ZIP)
+    shutil.rmtree(project_dir)
+    
+    return zip_path

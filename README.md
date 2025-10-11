@@ -28,12 +28,20 @@ A comprehensive low-code platform with project management, SQL query builder, an
 - **Data Binding**: Connect table components to SQL queries or API endpoints
 - **Persistent Canvas**: Save your layouts and reload them anytime
 - **Full-Screen Preview**: View your canvas as end-users would see it 🆕
+- **Project Export**: Export as standalone HTML or full-stack package 🆕
 
 ### 4. Data Integration
 - **SQL Query Data Sources**: Use saved SQL queries to populate table components
 - **API Endpoints**: Connect to external APIs for data fetching
 - **Static Data**: Define inline JSON data for quick prototyping
 - **Auto-refresh**: Tables automatically fetch data when mounted
+
+### 5. Project Export 🆕 🚀
+- **Static Bundle**: Export as single HTML file (works offline with snapshot data)
+- **Full-Stack Package**: Export as ZIP with frontend + minimal backend
+- **Data Strategies**: Choose between snapshot (embedded) or live (dynamic) data
+- **Deployment Ready**: Deploy to Vercel, Netlify, Heroku, AWS, or anywhere
+- **Zero Config**: Exported apps work out of the box
 
 ## Architecture
 
@@ -241,6 +249,24 @@ From the home page you can:
 4. Use enhanced space to manipulate complex schemas
 5. Press **ESC** or click the close button to exit
 
+### Exporting Your Project 🆕
+
+1. Open your project in the editor
+2. Click the **Export** button (green button next to Preview)
+3. Choose export format:
+   - **Static Bundle** - Single HTML file (recommended for demos)
+   - **Full-Stack Package** - ZIP with frontend + backend (for production)
+4. Choose data strategy:
+   - **Snapshot Data** - Embed current query results (works offline)
+   - **Live Queries** - Keep dynamic data (requires backend)
+5. Click **Export Project** and download your file
+
+**Deployment Options:**
+- **Static Bundle:** Deploy to Vercel, Netlify, GitHub Pages, or open locally
+- **Full-Stack:** Extract ZIP, start backend with `python main.py`, open frontend
+
+See [PROJECT_EXPORT_FEATURE.md](PROJECT_EXPORT_FEATURE.md) for detailed documentation.
+
 ### Alternative: Using API Endpoints
 
 1. Set **Data Source Type** to "URL/API Endpoint"
@@ -370,17 +396,28 @@ curl http://localhost:8000/api/queries/{query-id}/execute
 
 - **QUICKSTART.md** - Step-by-step getting started guide
 - **PROJECT_CRUD_FEATURE.md** - Detailed technical documentation for projects feature
+- **PROJECT_EXPORT_FEATURE.md** - Complete export feature guide and deployment strategies 🆕
 - **FEATURE_SUMMARY.md** - Complete implementation summary with architecture diagrams
 - **ARCHITECTURE.md** - Overall system architecture
 - **IMPLEMENTATION_SUMMARY.md** - Development history and decisions
-- **FULL_SCREEN_PREVIEW.md** - Full-screen preview feature documentation 🆕
+- **FULL_SCREEN_PREVIEW.md** - Full-screen preview feature documentation
+- **SNAP_TO_GRID_FEATURE.md** - Snap to grid functionality documentation
 
 ## Future Enhancements
+
+### Export & Deployment
+- [x] Static HTML export (with snapshot/live data) ✅
+- [x] Full-stack package export (ZIP) ✅
+- [ ] Desktop executable export (Electron/Tauri)
+- [ ] Docker Compose generation
+- [ ] Progressive Web App (PWA) export
+- [ ] Mobile app export (React Native)
+- [ ] CI/CD integration templates
 
 ### Projects
 - [ ] Project templates and duplication
 - [ ] Version history and restore
-- [ ] Project export/import (JSON)
+- [x] Project export (Static/Full-stack) ✅
 - [ ] Auto-save functionality
 - [ ] Project tags and search
 - [ ] Canvas thumbnails
