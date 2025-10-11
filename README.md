@@ -122,6 +122,56 @@ pnpm dev
 
 The app will be available at `http://localhost:5173`
 
+### Test Databases (Optional)
+
+To get started quickly with sample data, we provide test database scripts for three different database systems:
+
+#### Quick Setup (All Databases)
+```bash
+cd backend
+./setup_test_dbs.sh
+```
+
+This interactive script will help you set up:
+- **SQLite** test database (no Docker required)
+- **PostgreSQL** test database (with Docker)
+- **MySQL** test database (with Docker)
+
+#### Individual Setup
+
+**SQLite** (Simplest - no dependencies):
+```bash
+cd backend
+python create_test_db.py
+```
+
+**PostgreSQL** (Recommended for production-like testing):
+```bash
+# Start PostgreSQL with Docker
+docker run --name proto-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
+
+# Create test database
+cd backend
+python create_postgres_test_db.py
+```
+
+**MySQL** (Alternative):
+```bash
+# Start MySQL with Docker
+docker run --name proto-mysql -e MYSQL_ROOT_PASSWORD=password -p 3306:3306 -d mysql:8
+
+# Create test database
+cd backend
+python create_mysql_test_db.py
+```
+
+All test databases contain the same schema with sample data:
+- 10 users (with departments, roles, salaries)
+- 5 projects (with budgets, dates, managers)
+- 10 tasks (with assignments, priorities, statuses)
+
+For detailed information, connection settings, and troubleshooting, see [backend/TEST_DATABASES.md](backend/TEST_DATABASES.md).
+
 ## Usage Guide
 
 ### Creating a New Project
