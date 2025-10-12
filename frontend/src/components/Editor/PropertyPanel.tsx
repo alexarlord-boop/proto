@@ -11,6 +11,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FormattingRuleManager } from './FormattingRuleManager'
 import { ColumnConfigManager } from './ColumnConfigManager'
+import { QueryTreeSelect } from './QueryTreeSelect'
 import type { 
   ComponentInstance, 
   PropertyDefinition, 
@@ -22,13 +23,6 @@ import type {
 } from './types'
 
 const API_BASE = 'http://localhost:8000'
-
-interface SavedQuery {
-  id: string
-  name: string
-  description: string | null
-  is_valid: boolean
-}
 
 interface PropertyPanelProps {
   component: ComponentInstance | null
@@ -48,15 +42,9 @@ export function PropertyPanel({
   onLayoutChange,
 }: PropertyPanelProps) {
   const [activeTab, setActiveTab] = useState<PropertyCategory>('data')
-  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([])
   const [jsonEditorValues, setJsonEditorValues] = useState<Record<string, string>>({})
   const [jsonErrors, setJsonErrors] = useState<Record<string, string>>({})
   const [availableColumns, setAvailableColumns] = useState<string[]>([])
-
-  // Fetch saved queries on mount
-  useEffect(() => {
-    fetchSavedQueries()
-  }, [])
 
   // Fetch available columns for table components
   useEffect(() => {
@@ -102,16 +90,6 @@ export function PropertyPanel({
     }
     
     setAvailableColumns([])
-  }
-
-  const fetchSavedQueries = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/queries`)
-      const data = await response.json()
-      setSavedQueries(data)
-    } catch (error) {
-      console.error('Error fetching queries:', error)
-    }
   }
 
   if (!component) {
@@ -333,37 +311,16 @@ export function PropertyPanel({
 
       case 'query-select':
         return (
-          <div className="space-y-2">
-            <Select
-              value={currentValue}
-              onValueChange={(value) => {
-                onPropertyChange(prop.key, value)
-                // Refresh columns when query changes
-                setTimeout(() => fetchTableColumns(), 500)
-              }}
-              disabled={prop.disabled}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={prop.placeholder || 'Select a query...'} />
-              </SelectTrigger>
-              <SelectContent>
-                {savedQueries
-                  .filter(q => q.is_valid)
-                  .map((query) => (
-                    <SelectItem key={query.id} value={query.id}>
-                      {query.name}
-                      {query.description && ` - ${query.description}`}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            <button
-              onClick={() => window.open('/query-creator', '_blank')}
-              className="text-xs text-blue-600 hover:text-blue-700 underline"
-            >
-              Open Query Creator
-            </button>
-          </div>
+          <QueryTreeSelect
+            value={currentValue}
+            onChange={(value) => {
+              onPropertyChange(prop.key, value)
+              // Refresh columns when query changes
+              setTimeout(() => fetchTableColumns(), 500)
+            }}
+            disabled={prop.disabled}
+            placeholder={prop.placeholder || 'Select a query...'}
+          />
         )
 
       case 'color':
