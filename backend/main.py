@@ -856,7 +856,79 @@ def generate_static_bundle(
       );
     }}
     
-    function DataTable({{ columns, data, dataSource, dataSourceType, queryId, striped, bordered }}) {{
+    // Table formatting evaluation functions
+    function evaluateCondition(condition, row) {{
+      const columnValue = row[condition.column];
+      const compareValue = condition.value;
+      
+      switch (condition.operator) {{
+        case 'eq': return columnValue == compareValue;
+        case 'neq': return columnValue != compareValue;
+        case 'gt': return Number(columnValue) > Number(compareValue);
+        case 'gte': return Number(columnValue) >= Number(compareValue);
+        case 'lt': return Number(columnValue) < Number(compareValue);
+        case 'lte': return Number(columnValue) <= Number(compareValue);
+        case 'contains': return String(columnValue).toLowerCase().includes(String(compareValue).toLowerCase());
+        case 'notContains': return !String(columnValue).toLowerCase().includes(String(compareValue).toLowerCase());
+        case 'startsWith': return String(columnValue).toLowerCase().startsWith(String(compareValue).toLowerCase());
+        case 'endsWith': return String(columnValue).toLowerCase().endsWith(String(compareValue).toLowerCase());
+        case 'isEmpty': return columnValue === null || columnValue === undefined || columnValue === '';
+        case 'isNotEmpty': return columnValue !== null && columnValue !== undefined && columnValue !== '';
+        default: return false;
+      }}
+    }}
+    
+    function evaluateRule(rule, row) {{
+      if (!rule.enabled || !rule.conditions || rule.conditions.length === 0) return false;
+      
+      let result = evaluateCondition(rule.conditions[0], row);
+      for (let i = 1; i < rule.conditions.length; i++) {{
+        const prevLogic = rule.conditions[i - 1].logic || 'AND';
+        const currentResult = evaluateCondition(rule.conditions[i], row);
+        result = prevLogic === 'AND' ? (result && currentResult) : (result || currentResult);
+      }}
+      return result;
+    }}
+    
+    function getRowFormatting(row, rules) {{
+      const rowRules = (rules || []).filter(rule => rule.target === 'row');
+      let combinedStyle = {{}};
+      let hasAnyStyle = false;
+      
+      for (const rule of rowRules) {{
+        if (evaluateRule(rule, row)) {{
+          combinedStyle = {{ ...combinedStyle, ...rule.style }};
+          hasAnyStyle = true;
+        }}
+      }}
+      return hasAnyStyle ? combinedStyle : null;
+    }}
+    
+    function getCellFormatting(row, columnKey, rules) {{
+      const cellRules = (rules || []).filter(rule => rule.target === 'cell' && rule.targetColumn === columnKey);
+      let combinedStyle = {{}};
+      let hasAnyStyle = false;
+      
+      for (const rule of cellRules) {{
+        if (evaluateRule(rule, row)) {{
+          combinedStyle = {{ ...combinedStyle, ...rule.style }};
+          hasAnyStyle = true;
+        }}
+      }}
+      return hasAnyStyle ? combinedStyle : null;
+    }}
+    
+    function formatStyleToCSS(style) {{
+      return {{
+        backgroundColor: style.backgroundColor,
+        color: style.textColor,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        textDecoration: style.textDecoration,
+      }};
+    }}
+    
+    function DataTable({{ columns, data, dataSource, dataSourceType, queryId, striped, bordered, columnConfigs, formattingRules, headerBackgroundColor, headerTextColor, rowHoverColor }}) {{
       const [tableData, setTableData] = useState(data || []);
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
@@ -914,10 +986,35 @@ def generate_static_bundle(
         return <div className="p-4 text-slate-400">No data available</div>;
       }}
       
-      const derivedColumns = columns || Object.keys(tableData[0] || {{}}).map(key => ({{
+      // Auto-derive columns from data
+      let derivedColumns = columns || Object.keys(tableData[0] || {{}}).map(key => ({{
         key,
-        label: key.charAt(0).toUpperCase() + key.slice(1)
+        label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')
       }}));
+      
+      // Apply column configuration
+      if (columnConfigs && columnConfigs.length > 0) {{
+        const columnsMap = new Map(derivedColumns.map(col => [col.key, col]));
+        derivedColumns = columnConfigs
+          .filter(config => config.visible !== false)
+          .map(config => {{
+            const originalCol = columnsMap.get(config.key);
+            if (originalCol) {{
+              return {{
+                key: config.key,
+                label: config.label || originalCol.label,
+                width: config.width
+              }};
+            }}
+            return null;
+          }})
+          .filter(col => col !== null);
+      }}
+      
+      const headerStyle = {{
+        backgroundColor: headerBackgroundColor,
+        color: headerTextColor
+      }};
       
       return (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -925,22 +1022,43 @@ def generate_static_bundle(
             <thead className="bg-slate-100">
               <tr>
                 {{derivedColumns.map((col) => (
-                  <th key={{col.key}} className={{`px-4 py-2 text-left font-medium text-slate-700 ${{bordered ? 'border border-slate-200' : ''}}`}}>
+                  <th 
+                    key={{col.key}} 
+                    style={{{{...headerStyle, width: col.width}}}}
+                    className={{`px-4 py-2 text-left font-medium text-slate-700 ${{bordered ? 'border border-slate-200' : ''}}`}}
+                  >
                     {{col.label}}
                   </th>
                 ))}}
               </tr>
             </thead>
             <tbody>
-              {{tableData.map((row, idx) => (
-                <tr key={{idx}} className={{`${{striped && idx % 2 === 1 ? 'bg-slate-50' : ''}}`}}>
-                  {{derivedColumns.map((col) => (
-                    <td key={{col.key}} className={{`px-4 py-2 text-slate-600 ${{bordered ? 'border border-slate-200' : ''}}`}}>
-                      {{row[col.key] !== null && row[col.key] !== undefined ? String(row[col.key]) : '-'}}
-                    </td>
-                  ))}}
-                </tr>
-              ))}}
+              {{tableData.map((row, idx) => {{
+                const rowFormatStyle = getRowFormatting(row, formattingRules);
+                const rowCSS = rowFormatStyle ? formatStyleToCSS(rowFormatStyle) : {{}};
+                const stripedBg = striped && idx % 2 === 1 ? {{ backgroundColor: '#f8fafc' }} : {{}};
+                const rowStyle = {{ ...stripedBg, ...rowCSS }};
+                
+                return (
+                  <tr key={{idx}} style={{rowStyle}} className={{rowHoverColor ? 'hover:opacity-90' : ''}}>
+                    {{derivedColumns.map((col) => {{
+                      const cellFormatStyle = getCellFormatting(row, col.key, formattingRules);
+                      const cellCSS = cellFormatStyle ? formatStyleToCSS(cellFormatStyle) : {{}};
+                      const cellStyle = {{ ...cellCSS, width: col.width, minWidth: col.width }};
+                      
+                      return (
+                        <td 
+                          key={{col.key}} 
+                          style={{cellStyle}}
+                          className={{`px-4 py-2 text-slate-600 ${{bordered ? 'border border-slate-200' : ''}}`}}
+                        >
+                          {{row[col.key] !== null && row[col.key] !== undefined ? String(row[col.key]) : '-'}}
+                        </td>
+                      );
+                    }})}}
+                  </tr>
+                );
+              }})}}
             </tbody>
           </table>
         </div>
