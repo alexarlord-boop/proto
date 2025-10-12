@@ -355,6 +355,46 @@ class DatabaseManager:
                 "error": str(e),
                 "message": f"Connection failed: {str(e)}"
             }
+    
+    def generate_default_queries(self, connector: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate default queries for all tables in the database schema.
+        Creates basic SELECT * queries for each table.
+        """
+        try:
+            # Get schema first
+            schema_result = self.get_schema(connector)
+            if not schema_result.get('success'):
+                return schema_result
+            
+            tables = schema_result.get('tables', [])
+            default_queries = []
+            
+            for table in tables:
+                table_name = table['name']
+                # Generate basic SELECT query
+                default_queries.append({
+                    "table_name": table_name,
+                    "query_name": f"Select all from {table_name}",
+                    "description": f"Get all records from {table_name} table",
+                    "sql_query": f"SELECT * FROM {table_name}",
+                    "query_type": "SELECT"
+                })
+            
+            return {
+                "success": True,
+                "connector_id": connector['id'],
+                "queries": default_queries,
+                "query_count": len(default_queries)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating default queries: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to generate default queries: {str(e)}"
+            }
 
 
 # Singleton instance

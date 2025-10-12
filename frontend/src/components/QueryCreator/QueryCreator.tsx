@@ -17,6 +17,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { SchemaVisualizer } from './SchemaVisualizer'
 
 const API_BASE = 'http://localhost:8000'
@@ -59,11 +65,26 @@ interface SchemaTable {
   foreign_keys?: ForeignKey[]
 }
 
+interface DefaultQuery {
+  table_name: string
+  query_name: string
+  description: string
+  sql_query: string
+  query_type: string
+}
+
+interface ConnectorDefaultQueries {
+  connector_id: string
+  queries: DefaultQuery[]
+}
+
 export function QueryCreator() {
   const [connectors, setConnectors] = useState<DBConnector[]>([])
   const [queries, setQueries] = useState<SQLQuery[]>([])
   const [selectedConnector, setSelectedConnector] = useState<string>('')
   const [schema, setSchema] = useState<SchemaTable[]>([])
+  const [defaultQueries, setDefaultQueries] = useState<Record<string, DefaultQuery[]>>({})
+  const [expandedConnectors, setExpandedConnectors] = useState<Set<string>>(new Set())
   
   // Query form state
   const [queryName, setQueryName] = useState('')
@@ -88,6 +109,19 @@ export function QueryCreator() {
     fetchConnectors()
     fetchQueries()
   }, [])
+
+  // Load default queries when connectors are loaded
+  useEffect(() => {
+    const loadDefaultQueries = async () => {
+      for (const connector of connectors) {
+        await fetchDefaultQueries(connector.id)
+      }
+    }
+    
+    if (connectors.length > 0) {
+      loadDefaultQueries()
+    }
+  }, [connectors.length])
 
   // Load schema when connector is selected
   useEffect(() => {
@@ -124,6 +158,21 @@ export function QueryCreator() {
     } catch (error) {
       console.error('Error fetching schema:', error)
       setSchema([])
+    }
+  }
+
+  const fetchDefaultQueries = async (connectorId: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/connectors/${connectorId}/default-queries`)
+      const data = await response.json()
+      if (data.success && data.queries) {
+        setDefaultQueries(prev => ({
+          ...prev,
+          [connectorId]: data.queries
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching default queries:', error)
     }
   }
 
@@ -309,6 +358,28 @@ export function QueryCreator() {
     setExecutionResult(null)
   }
 
+  const loadDefaultQuery = (defaultQuery: DefaultQuery, connectorId: string) => {
+    setEditingQueryId(null)
+    setQueryName(defaultQuery.query_name)
+    setQueryDescription(defaultQuery.description)
+    setSqlQuery(defaultQuery.sql_query)
+    setSelectedConnector(connectorId)
+    setValidationResult(null)
+    setExecutionResult(null)
+  }
+
+  const toggleConnectorExpansion = (connectorId: string) => {
+    setExpandedConnectors(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(connectorId)) {
+        newSet.delete(connectorId)
+      } else {
+        newSet.add(connectorId)
+      }
+      return newSet
+    })
+  }
+
   return (
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
@@ -448,20 +519,84 @@ export function QueryCreator() {
               )}
 
               <div className="space-y-2">
-                {connectors.map((connector) => (
-                  <div
-                    key={connector.id}
-                    className={`p-3 border rounded-lg cursor-pointer transition-colors hover:bg-slate-50 ${
-                      selectedConnector === connector.id ? 'bg-blue-50 border-blue-300' : ''
-                    }`}
-                    onClick={() => setSelectedConnector(connector.id)}
-                  >
-                    <div className="font-medium text-sm">{connector.name}</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {connector.db_type} - {connector.database}
-                    </div>
-                  </div>
-                ))}
+                {connectors.map((connector) => {
+                  const connectorQueries = defaultQueries[connector.id] || []
+                  const isExpanded = expandedConnectors.has(connector.id)
+                  
+                  return (
+                    <Collapsible
+                      key={connector.id}
+                      open={isExpanded}
+                      onOpenChange={() => toggleConnectorExpansion(connector.id)}
+                    >
+                      <div className={`border rounded-lg ${
+                        selectedConnector === connector.id ? 'bg-blue-50 border-blue-300' : 'bg-white'
+                      }`}>
+                        {/* Connector Header */}
+                        <div className="p-3 flex items-start justify-between">
+                          <div 
+                            className="flex-1 cursor-pointer"
+                            onClick={() => setSelectedConnector(connector.id)}
+                          >
+                            <div className="font-medium text-sm">{connector.name}</div>
+                            <div className="text-xs text-slate-500 mt-1">
+                              {connector.db_type} - {connector.database}
+                            </div>
+                          </div>
+                          
+                          {connectorQueries.length > 0 && (
+                            <CollapsibleTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {isExpanded ? (
+                                  <ChevronDown className="h-4 w-4" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </CollapsibleTrigger>
+                          )}
+                        </div>
+
+                        {/* Default Queries List */}
+                        {connectorQueries.length > 0 && (
+                          <CollapsibleContent>
+                            <div className="border-t px-3 pb-2">
+                              <div className="text-xs font-semibold text-slate-600 mt-2 mb-1 px-2">
+                                Default Queries ({connectorQueries.length})
+                              </div>
+                              <div className="space-y-1">
+                                {connectorQueries.map((query, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="p-2 rounded hover:bg-slate-100 cursor-pointer transition-colors text-xs"
+                                    onClick={() => loadDefaultQuery(query, connector.id)}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-blue-600 mt-0.5">📄</span>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="font-medium text-slate-700 truncate">
+                                          {query.table_name}
+                                        </div>
+                                        <div className="text-slate-500 text-[10px] truncate">
+                                          SELECT * FROM {query.table_name}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </CollapsibleContent>
+                        )}
+                      </div>
+                    </Collapsible>
+                  )
+                })}
               </div>
             </TabsContent>
           </Tabs>

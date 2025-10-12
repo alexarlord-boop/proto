@@ -296,6 +296,31 @@ async def get_connector_schema(connector_id: str, db: Session = Depends(get_db))
     return schema
 
 
+@app.get("/api/connectors/{connector_id}/default-queries")
+async def get_connector_default_queries(connector_id: str, db: Session = Depends(get_db)):
+    """Get default queries for a connector based on its schema"""
+    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    
+    connector_dict = {
+        "id": connector.id,
+        "db_type": connector.db_type,
+        "host": connector.host,
+        "port": connector.port,
+        "database": connector.database,
+        "username": connector.username,
+        "password": connector.password,
+        "connection_string": connector.connection_string
+    }
+    
+    default_queries = db_manager.generate_default_queries(connector_dict)
+    if not default_queries["success"]:
+        raise HTTPException(status_code=500, detail=default_queries.get("message", "Failed to generate default queries"))
+    
+    return default_queries
+
+
 # ============================================================================
 # SQL Query Endpoints
 # ============================================================================
