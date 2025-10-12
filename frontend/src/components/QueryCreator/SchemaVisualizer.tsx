@@ -15,7 +15,7 @@ import {
 import 'reactflow/dist/style.css'
 import dagre from 'dagre'
 import { Button } from '@/components/ui/button'
-import { Maximize2, Network } from 'lucide-react'
+import { Maximize2, Minimize2, Network, ChevronDown, ChevronUp } from 'lucide-react'
 import { FullScreenPreview } from '../Editor/FullScreenPreview'
 
 interface Column {
@@ -135,6 +135,7 @@ const nodeTypes = {
 export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
   const [isFullScreenOpen, setIsFullScreenOpen] = useState(false)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [isInfoMinimized, setIsInfoMinimized] = useState(false)
   
   // Calculate layout positions for tables
   const { initialNodes, initialEdges } = useMemo(() => {
@@ -434,9 +435,21 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
         />
       </ReactFlow>
       
-      {/* Info overlay */}
-      <div className={`absolute ${inFullScreen ? 'top-20' : 'top-4'} left-4 bg-white/95 backdrop-blur-sm px-4 py-3 rounded-lg shadow-md border text-xs max-w-[280px]`}>
-        <div className="font-semibold text-slate-700 mb-2">Schema Overview</div>
+      {/* Info overlay - top-left corner in both normal and full-screen modes */}
+      <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-3 rounded-lg shadow-md border text-xs max-w-[280px] z-10">
+        {/* Header with minimize toggle */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-semibold text-slate-700">Schema Overview</div>
+          <button
+            onClick={() => setIsInfoMinimized(!isInfoMinimized)}
+            className="text-slate-500 hover:text-slate-700 p-1 hover:bg-slate-100 rounded"
+            title={isInfoMinimized ? "Expand" : "Collapse"}
+          >
+            {isInfoMinimized ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          </button>
+        </div>
+        
+        {/* Stats line - always visible */}
         <div className="text-slate-600 mb-3">
           {schema.length} table{schema.length !== 1 ? 's' : ''}
           {hasRelationships && (
@@ -444,57 +457,70 @@ export function SchemaVisualizer({ schema }: SchemaVisualizerProps) {
           )}
         </div>
         
-        <div className="space-y-1.5 mb-3 pt-2 border-t">
-          <div className="font-semibold text-slate-700">Legend:</div>
-          <div className="flex items-center gap-2">
-            <span className="text-yellow-600">🔑</span>
-            <span className="text-slate-600">Primary Key</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-blue-600">🔗</span>
-            <span className="text-slate-600">Foreign Key</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-blue-50 border border-blue-200 rounded"></div>
-            <span className="text-slate-600">FK Column</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div>
-            <span className="text-slate-600">Referenced Column</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-0.5 bg-orange-500 rounded"></div>
-            <span className="text-slate-600">Self-reference</span>
-          </div>
-        </div>
+        {/* Expandable content */}
+        {!isInfoMinimized && (
+          <>
+            <div className="space-y-1.5 mb-3 pt-2 border-t">
+              <div className="font-semibold text-slate-700">Legend:</div>
+              <div className="flex items-center gap-2">
+                <span className="text-yellow-600">🔑</span>
+                <span className="text-slate-600">Primary Key</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-blue-600">🔗</span>
+                <span className="text-slate-600">Foreign Key</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-blue-50 border border-blue-200 rounded"></div>
+                <span className="text-slate-600">FK Column</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div>
+                <span className="text-slate-600">Referenced Column</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-0.5 bg-orange-500 rounded"></div>
+                <span className="text-slate-600">Self-reference</span>
+              </div>
+            </div>
+            
+            <div className="text-slate-500 italic pt-2 border-t space-y-1">
+              <div>💡 Drag to pan, scroll to zoom</div>
+              <div>🖱️ Click table to highlight relations</div>
+            </div>
+          </>
+        )}
         
-        <div className="text-slate-500 italic pt-2 border-t space-y-1">
-          <div>💡 Drag to pan, scroll to zoom</div>
-          <div>🖱️ Click table to highlight relations</div>
-        </div>
-        
-        <div className="pt-3 border-t mt-3 space-y-2">
+        {/* Action buttons */}
+        <div className={`${isInfoMinimized ? '' : 'pt-3 border-t mt-3'}`}>
           <Button
             onClick={onNormalizeLayout}
             size="sm"
             variant="default"
-            className="w-full"
+            className={isInfoMinimized ? 'px-2' : 'w-full'}
+            title="Normalize Layout"
           >
-            <Network className="w-3 h-3 mr-2" />
-            Normalize Layout
+            <Network className="w-3 h-3" />
+            {!isInfoMinimized && <span className="ml-2">Normalize Layout</span>}
           </Button>
-          {!inFullScreen && (
-            <Button
-              onClick={() => setIsFullScreenOpen(true)}
-              size="sm"
-              variant="outline"
-              className="w-full"
-            >
-              <Maximize2 className="w-3 h-3 mr-2" />
-              Full Screen
-            </Button>
-          )}
         </div>
+      </div>
+      
+      {/* Full Screen Toggle Button - Top Right Corner */}
+      <div className="absolute top-4 right-4 z-10">
+        <Button
+          onClick={() => inFullScreen ? setIsFullScreenOpen(false) : setIsFullScreenOpen(true)}
+          size="sm"
+          variant="outline"
+          className="bg-white/95 backdrop-blur-sm hover:bg-white shadow-md"
+          title={inFullScreen ? "Exit Full Screen" : "Full Screen"}
+        >
+          {inFullScreen ? (
+            <Minimize2 className="w-4 h-4" />
+          ) : (
+            <Maximize2 className="w-4 h-4" />
+          )}
+        </Button>
       </div>
     </>
   )
