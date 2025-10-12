@@ -14,7 +14,7 @@ import { PropertyPanel } from './PropertyPanel'
 import { COMPONENT_REGISTRY, LAYOUT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
 import { Button } from '@/components/ui/button'
-import { Save, Home, Maximize2, Grid3x3, Download } from 'lucide-react'
+import { Save, Home, Maximize2, Grid3x3, Download, ChevronLeft, ChevronRight } from 'lucide-react'
 import { FullScreenPreview } from './FullScreenPreview'
 import { CanvasPreview } from './CanvasPreview'
 import { Toggle } from '@/components/ui/toggle'
@@ -42,6 +42,8 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const [exporting, setExporting] = useState(false)
   const [snapToGrid, setSnapToGrid] = useState(true)
   const [gridSize, setGridSize] = useState(20)
+  const [isPaletteCollapsed, setIsPaletteCollapsed] = useState(false)
+  const [isPropertiesCollapsed, setIsPropertiesCollapsed] = useState(false)
   const nextIdRef = useRef(1)
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -738,8 +740,8 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
       </div>
 
       {/* Editor Area */}
-      <div className="flex-1 p-6 overflow-hidden">
-        <div className="max-w-[1800px] mx-auto h-full flex gap-6">
+      <div className="flex-1 p-2 overflow-hidden">
+        <div className="max-w-[1800px] mx-auto h-full flex gap-2">
           <DndContext
             sensors={sensors}
             onDragStart={handleDragStart}
@@ -748,8 +750,21 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
             modifiers={modifiers}
           >
             {/* Palette Sidebar */}
-            <div className="w-64 flex-shrink-0">
-              <DnDPalette />
+            <div className={`flex-shrink-0 transition-all duration-300 ${isPaletteCollapsed ? 'w-16' : 'w-64'}`}>
+              <div className="relative h-full">
+                <DnDPalette collapsed={isPaletteCollapsed} />
+                <button
+                  onClick={() => setIsPaletteCollapsed(!isPaletteCollapsed)}
+                  className="absolute -right-3 top-1/2 -translate-y-1/2 bg-white border-2 border-slate-300 rounded-full p-1 shadow-md hover:bg-slate-50 transition-colors z-10"
+                  title={isPaletteCollapsed ? 'Expand Palette' : 'Collapse Palette'}
+                >
+                  {isPaletteCollapsed ? (
+                    <ChevronRight className="w-4 h-4 text-slate-700" />
+                  ) : (
+                    <ChevronLeft className="w-4 h-4 text-slate-700" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Canvas Area */}
@@ -766,16 +781,38 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
             </div>
 
             {/* Property Panel Sidebar */}
-            <div className="w-80 flex-shrink-0">
-              <PropertyPanel
-                component={selectedComponent || null}
-                propertySchema={selectedComponentDef?.propertySchema || []}
-                events={selectedComponentDef?.events || []}
-                onPropertyChange={handlePropertyChange}
-                onEventHandlerChange={handleEventHandlerChange}
-                onLayoutChange={handleLayoutChange}
-              />
-            </div>
+            {!isPropertiesCollapsed && (
+              <div className="w-[400px] flex-shrink-0 transition-all duration-300">
+                <div className="relative h-full">
+                  <button
+                    onClick={() => setIsPropertiesCollapsed(true)}
+                    className="absolute -left-3 top-1/2 -translate-y-1/2 bg-white border-2 border-slate-300 rounded-full p-1 shadow-md hover:bg-slate-50 transition-colors z-10"
+                    title="Collapse Properties"
+                  >
+                    <ChevronRight className="w-4 h-4 text-slate-700" />
+                  </button>
+                  <PropertyPanel
+                    component={selectedComponent || null}
+                    propertySchema={selectedComponentDef?.propertySchema || []}
+                    events={selectedComponentDef?.events || []}
+                    onPropertyChange={handlePropertyChange}
+                    onEventHandlerChange={handleEventHandlerChange}
+                    onLayoutChange={handleLayoutChange}
+                  />
+                </div>
+              </div>
+            )}
+            
+            {/* Collapsed Properties Tab Button */}
+            {isPropertiesCollapsed && (
+              <button
+                onClick={() => setIsPropertiesCollapsed(false)}
+                className="fixed right-0 top-1/2 -translate-y-1/2 bg-white border-2 border-r-0 border-slate-300 rounded-l-lg px-3 py-8 shadow-lg hover:bg-slate-50 transition-all hover:px-4 z-20 flex items-center justify-center"
+                title="Properties"
+              >
+                <span className="text-sm font-bold text-slate-700">P</span>
+              </button>
+            )}
 
             {/* Drag Overlay */}
             <DragOverlay>

@@ -116,7 +116,7 @@ export function PropertyPanel({
 
   if (!component) {
     return (
-      <div className="w-80 bg-white rounded-xl shadow-lg p-6 border-2 border-slate-300">
+      <div className="w-full bg-white rounded-xl shadow-lg p-6 border-2 border-slate-300">
         <div className="text-center text-slate-400 mt-20">
           <p className="text-lg font-medium">No component selected</p>
           <p className="text-sm mt-2">Select a component on the canvas to edit its properties</p>
@@ -492,17 +492,17 @@ export function PropertyPanel({
   }
 
   return (
-    <div className="w-80 bg-white rounded-xl shadow-lg border-2 border-slate-300 flex flex-col h-full">
+    <div className="w-full bg-white rounded-xl shadow-lg border-2 border-slate-300 flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b">
-        <h2 className="text-lg font-bold text-slate-700">{component.label}</h2>
-        <p className="text-xs text-slate-500">ID: {component.id}</p>
+      <div className="p-4 border-b flex-shrink-0">
+        <h2 className="text-lg font-bold text-slate-700 truncate">{component.label}</h2>
+        <p className="text-xs text-slate-500 truncate">ID: {component.id}</p>
       </div>
 
       {/* Property Tabs */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PropertyCategory)} className="h-full flex flex-col">
-          <TabsList className="w-full grid grid-cols-4 m-2">
+          <TabsList className="w-full grid grid-cols-4 m-2 flex-shrink-0">
             {categories.map((cat) => (
               <TabsTrigger key={cat.key} value={cat.key} className="text-xs">
                 {cat.label}
@@ -511,7 +511,7 @@ export function PropertyPanel({
           </TabsList>
 
           {categories.map((cat) => (
-            <TabsContent key={cat.key} value={cat.key} className="flex-1 p-4">
+            <TabsContent key={cat.key} value={cat.key} className="flex-1 p-4 overflow-y-auto">
               {renderCategoryContent(cat.key)}
             </TabsContent>
           ))}
