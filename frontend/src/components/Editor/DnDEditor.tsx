@@ -740,7 +740,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
       </div>
 
       {/* Editor Area */}
-      <div className="flex-1 p-6 overflow-hidden">
+      <div className="flex-1 p-2 overflow-hidden">
         <div className="max-w-[1800px] mx-auto h-full flex gap-2">
           <DndContext
             sensors={sensors}
@@ -782,7 +782,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
             {/* Property Panel Sidebar */}
             {!isPropertiesCollapsed && (
-              <div className="w-[345px] flex-shrink-0 transition-all duration-300">
+              <div className="w-[400px] flex-shrink-0 transition-all duration-300">
                 <div className="relative h-full">
                   <button
                     onClick={() => setIsPropertiesCollapsed(true)}
