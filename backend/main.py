@@ -12,8 +12,15 @@ import tempfile
 import shutil
 import zipfile
 
-from database import get_db, init_db, DBConnector, SQLQuery, Project
+from database import get_db, init_db, DBConnector, SQLQuery, Project, User
 from db_manager import db_manager
+from auth import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    get_current_admin_user
+)
 
 
 app = FastAPI(title="Proto Query Builder API", version="1.0.0")
@@ -78,7 +85,6 @@ class SQLQueryCreate(BaseModel):
     sql_query: str
     connector_id: str
     project_id: str = "default"
-    developer_id: str = "default"
 
 
 class SQLQueryUpdate(BaseModel):
@@ -95,7 +101,7 @@ class SQLQueryResponse(BaseModel):
     sql_query: str
     connector_id: str
     project_id: str
-    developer_id: str
+    user_id: str
     is_valid: bool
     validation_error: Optional[str]
     last_executed: Optional[datetime]
@@ -121,7 +127,6 @@ class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
     components: List[dict] = []
-    developer_id: str = "default"
 
 
 class ProjectUpdate(BaseModel):
@@ -135,12 +140,47 @@ class ProjectResponse(BaseModel):
     name: str
     description: Optional[str]
     components: List[dict]
-    developer_id: str
+    user_id: str
     created_at: datetime
     updated_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: str
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse
+
+
+class InitAdminRequest(BaseModel):
+    username: str
+    email: str
+    password: str
 
 
 # ============================================================================
@@ -192,14 +232,138 @@ async def test():
 
 
 # ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+@app.post("/api/admin/init", response_model=UserResponse)
+async def initialize_admin(request: InitAdminRequest, db: Session = Depends(get_db)):
+    """Initialize the first admin user (only works if no users exist)"""
+    # Check if any users exist
+    existing_users = db.query(User).count()
+    if existing_users > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Admin user already exists. Use login instead."
+        )
+    
+    # Check if username or email already exists (shouldn't happen, but safe check)
+    existing = db.query(User).filter(
+        (User.username == request.username) | (User.email == request.email)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+    
+    # Create admin user
+    admin_user = User(
+        id=str(uuid.uuid4()),
+        username=request.username,
+        email=request.email,
+        hashed_password=get_password_hash(request.password),
+        is_active=True,
+        is_admin=True
+    )
+    
+    db.add(admin_user)
+    db.commit()
+    db.refresh(admin_user)
+    
+    return admin_user
+
+
+@app.post("/api/auth/register", response_model=UserResponse)
+async def register(
+    request: UserRegister,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Register a new user (admin only)"""
+    # Check if username or email already exists
+    existing = db.query(User).filter(
+        (User.username == request.username) | (User.email == request.email)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+    
+    # Create new user
+    new_user = User(
+        id=str(uuid.uuid4()),
+        username=request.username,
+        email=request.email,
+        hashed_password=get_password_hash(request.password),
+        is_active=True,
+        is_admin=False
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return new_user
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(request: UserLogin, db: Session = Depends(get_db)):
+    """Login and receive an access token"""
+    # Find user by username
+    user = db.query(User).filter(User.username == request.username).first()
+    
+    if not user or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="User account is inactive"
+        )
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.id})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user
+    }
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current authenticated user information"""
+    return current_user
+
+
+@app.get("/api/auth/check")
+async def check_auth_status(db: Session = Depends(get_db)):
+    """Check if admin exists and authentication is required"""
+    user_count = db.query(User).count()
+    admin_exists = db.query(User).filter(User.is_admin == True).count() > 0
+    
+    return {
+        "requires_init": user_count == 0,
+        "admin_exists": admin_exists,
+        "auth_required": user_count > 0
+    }
+
+
+# ============================================================================
 # DB Connector Endpoints
 # ============================================================================
 
 @app.post("/api/connectors", response_model=DBConnectorResponse)
-async def create_connector(connector: DBConnectorCreate, db: Session = Depends(get_db)):
-    """Create a new database connector"""
-    # Check if name already exists
-    existing = db.query(DBConnector).filter(DBConnector.name == connector.name).first()
+async def create_connector(
+    connector: DBConnectorCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new database connector (requires authentication)"""
+    # Check if name already exists for this user
+    existing = db.query(DBConnector).filter(
+        DBConnector.name == connector.name,
+        DBConnector.user_id == current_user.id
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Connector with this name already exists")
     
@@ -213,7 +377,8 @@ async def create_connector(connector: DBConnectorCreate, db: Session = Depends(g
         username=connector.username,
         password=connector.password,
         connection_string=connector.connection_string,
-        is_active=True
+        is_active=True,
+        user_id=current_user.id
     )
     
     # Test connection before saving
@@ -243,25 +408,45 @@ async def create_connector(connector: DBConnectorCreate, db: Session = Depends(g
 
 
 @app.get("/api/connectors", response_model=List[DBConnectorResponse])
-async def list_connectors(db: Session = Depends(get_db)):
-    """List all database connectors"""
-    connectors = db.query(DBConnector).filter(DBConnector.is_active == True).all()
+async def list_connectors(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all database connectors for current user"""
+    connectors = db.query(DBConnector).filter(
+        DBConnector.is_active == True,
+        DBConnector.user_id == current_user.id
+    ).all()
     return connectors
 
 
 @app.get("/api/connectors/{connector_id}", response_model=DBConnectorResponse)
-async def get_connector(connector_id: str, db: Session = Depends(get_db)):
+async def get_connector(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get a specific connector by ID"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     return connector
 
 
 @app.delete("/api/connectors/{connector_id}")
-async def delete_connector(connector_id: str, db: Session = Depends(get_db)):
+async def delete_connector(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Delete a connector (soft delete)"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -272,9 +457,16 @@ async def delete_connector(connector_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/connectors/{connector_id}/schema")
-async def get_connector_schema(connector_id: str, db: Session = Depends(get_db)):
+async def get_connector_schema(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get database schema for a connector"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -297,9 +489,16 @@ async def get_connector_schema(connector_id: str, db: Session = Depends(get_db))
 
 
 @app.get("/api/connectors/{connector_id}/default-queries")
-async def get_connector_default_queries(connector_id: str, db: Session = Depends(get_db)):
+async def get_connector_default_queries(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get default queries for a connector based on its schema"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -326,10 +525,17 @@ async def get_connector_default_queries(connector_id: str, db: Session = Depends
 # ============================================================================
 
 @app.post("/api/queries", response_model=SQLQueryResponse)
-async def create_query(query: SQLQueryCreate, db: Session = Depends(get_db)):
-    """Create a new SQL query"""
-    # Verify connector exists
-    connector = db.query(DBConnector).filter(DBConnector.id == query.connector_id).first()
+async def create_query(
+    query: SQLQueryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new SQL query (requires authentication)"""
+    # Verify connector exists and belongs to user
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == query.connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -354,7 +560,7 @@ async def create_query(query: SQLQueryCreate, db: Session = Depends(get_db)):
         sql_query=query.sql_query,
         connector_id=query.connector_id,
         project_id=query.project_id,
-        developer_id=query.developer_id,
+        user_id=current_user.id,
         is_valid=validation["valid"],
         validation_error=validation.get("message") if not validation["valid"] else None
     )
@@ -369,17 +575,15 @@ async def create_query(query: SQLQueryCreate, db: Session = Depends(get_db)):
 @app.get("/api/queries", response_model=List[SQLQueryResponse])
 async def list_queries(
     project_id: Optional[str] = None,
-    developer_id: Optional[str] = None,
     connector_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all SQL queries with optional filters"""
-    query = db.query(SQLQuery)
+    """List all SQL queries for current user with optional filters"""
+    query = db.query(SQLQuery).filter(SQLQuery.user_id == current_user.id)
     
     if project_id:
         query = query.filter(SQLQuery.project_id == project_id)
-    if developer_id:
-        query = query.filter(SQLQuery.developer_id == developer_id)
     if connector_id:
         query = query.filter(SQLQuery.connector_id == connector_id)
     
@@ -388,9 +592,16 @@ async def list_queries(
 
 
 @app.get("/api/queries/{query_id}", response_model=SQLQueryResponse)
-async def get_query(query_id: str, db: Session = Depends(get_db)):
+async def get_query(
+    query_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get a specific query by ID"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     return query
@@ -400,10 +611,14 @@ async def get_query(query_id: str, db: Session = Depends(get_db)):
 async def update_query(
     query_id: str,
     query_update: SQLQueryUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Update an existing query"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     
@@ -444,9 +659,16 @@ async def update_query(
 
 
 @app.delete("/api/queries/{query_id}")
-async def delete_query(query_id: str, db: Session = Depends(get_db)):
+async def delete_query(
+    query_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Delete a query"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     
@@ -457,9 +679,16 @@ async def delete_query(query_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/queries/validate")
-async def validate_query(request: QueryValidateRequest, db: Session = Depends(get_db)):
+async def validate_query(
+    request: QueryValidateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Validate a SQL query without saving it"""
-    connector = db.query(DBConnector).filter(DBConnector.id == request.connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == request.connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -479,9 +708,16 @@ async def validate_query(request: QueryValidateRequest, db: Session = Depends(ge
 
 
 @app.post("/api/queries/execute")
-async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_db)):
+async def execute_query(
+    request: QueryExecuteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Execute a saved query and return results (supports dry-run mode)"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == request.query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == request.query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     
@@ -523,10 +759,14 @@ async def execute_query_by_id(
     query_id: str,
     limit: Optional[int] = 1000,
     dry_run: Optional[bool] = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Execute a saved query by ID (GET endpoint for direct use in dataSource, supports dry-run mode)"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     
@@ -570,14 +810,18 @@ async def execute_query_by_id(
 # ============================================================================
 
 @app.post("/api/projects", response_model=ProjectResponse)
-async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
-    """Create a new canvas project"""
+async def create_project(
+    project: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new canvas project (requires authentication)"""
     db_project = Project(
         id=str(uuid.uuid4()),
         name=project.name,
         description=project.description,
         components=json.dumps(project.components),
-        developer_id=project.developer_id
+        user_id=current_user.id
     )
     
     db.add(db_project)
@@ -593,14 +837,11 @@ async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
 
 @app.get("/api/projects", response_model=List[ProjectResponse])
 async def list_projects(
-    developer_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all projects with optional filters"""
-    query = db.query(Project)
-    
-    if developer_id:
-        query = query.filter(Project.developer_id == developer_id)
+    """List all projects for current user"""
+    query = db.query(Project).filter(Project.user_id == current_user.id)
     
     projects = query.order_by(Project.updated_at.desc()).all()
     
@@ -615,9 +856,16 @@ async def list_projects(
 
 
 @app.get("/api/projects/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: str, db: Session = Depends(get_db)):
+async def get_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get a specific project by ID"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
@@ -631,10 +879,14 @@ async def get_project(project_id: str, db: Session = Depends(get_db)):
 async def update_project(
     project_id: str,
     project_update: ProjectUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Update an existing project"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
@@ -658,9 +910,16 @@ async def update_project(
 
 
 @app.delete("/api/projects/{project_id}")
-async def delete_project(project_id: str, db: Session = Depends(get_db)):
+async def delete_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Delete a project"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
@@ -675,7 +934,8 @@ async def export_project(
     project_id: str,
     format: str = "static",  # "static" or "fullstack"
     data_strategy: str = "snapshot",  # "snapshot" or "live"
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Export a project as a distributable artifact
@@ -684,7 +944,10 @@ async def export_project(
     - data_strategy: 'snapshot' (embed current data) or 'live' (keep API calls)
     """
     try:
-        project = db.query(Project).filter(Project.id == project_id).first()
+        project = db.query(Project).filter(
+            Project.id == project_id,
+            Project.user_id == current_user.id
+        ).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         

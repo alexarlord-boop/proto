@@ -1,10 +1,14 @@
 import { DnDEditor } from "@/components/Editor/DnDEditor.tsx"
 import { QueryCreator } from "@/components/QueryCreator/QueryCreator.tsx"
 import { ProjectManager } from "@/components/ProjectManager/ProjectManager.tsx"
+import { LoginPage } from "@/components/Auth/LoginPage.tsx"
+import { InitAdminPage } from "@/components/Auth/InitAdminPage.tsx"
+import { AuthProvider, useAuth } from "@/contexts/AuthContext"
+import { apiClient } from "@/lib/api-client"
 import { useState, useEffect } from "react"
 
-function App() {
-    // Simple routing based on pathname
+function AppContent() {
+    const { isAuthenticated, isLoading, authStatus } = useAuth()
     const [currentPath, setCurrentPath] = useState(window.location.pathname)
     const [projectId, setProjectId] = useState<string | undefined>()
     const [projectName, setProjectName] = useState<string | undefined>()
@@ -37,11 +41,8 @@ function App() {
     // Load project name for display
     const loadProjectName = async (id: string) => {
         try {
-            const response = await fetch(`http://localhost:8000/api/projects/${id}`)
-            if (response.ok) {
-                const project = await response.json()
-                setProjectName(project.name)
-            }
+            const project = await apiClient.get(`/api/projects/${id}`)
+            setProjectName(project.name)
         } catch (error) {
             console.error('Failed to load project name:', error)
         }
@@ -52,6 +53,25 @@ function App() {
         window.history.pushState({}, '', path)
         setCurrentPath(path)
         parseRoute(path)
+    }
+
+    // Show loading state
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+                <div className="text-slate-600">Loading...</div>
+            </div>
+        )
+    }
+
+    // Show admin initialization if no admin exists
+    if (authStatus?.requires_init) {
+        return <InitAdminPage />
+    }
+
+    // Show login if not authenticated
+    if (!isAuthenticated) {
+        return <LoginPage />
     }
 
     // Route to query creator
@@ -72,6 +92,14 @@ function App() {
 
     // Default route - home page with project manager
     return <ProjectManager onNavigate={navigate} />
+}
+
+function App() {
+    return (
+        <AuthProvider>
+            <AppContent />
+        </AuthProvider>
+    )
 }
 
 export default App

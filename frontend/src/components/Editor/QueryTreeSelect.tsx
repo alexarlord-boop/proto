@@ -7,6 +7,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { apiClient } from '@/lib/api-client'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -62,18 +63,17 @@ export function QueryTreeSelect({
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [connectorsRes, queriesRes] = await Promise.all([
-        fetch(`${API_BASE}/api/connectors`),
-        fetch(`${API_BASE}/api/queries`),
+      const [connectorsData, queriesData] = await Promise.all([
+        apiClient.get<DBConnector[]>('/api/connectors'),
+        apiClient.get<SQLQuery[]>('/api/queries'),
       ])
       
-      const connectorsData = await connectorsRes.json()
-      const queriesData = await queriesRes.json()
-      
-      setConnectors(connectorsData)
-      setQueries(queriesData.filter((q: SQLQuery) => q.is_valid))
+      setConnectors(connectorsData || [])
+      setQueries((queriesData || []).filter((q: SQLQuery) => q.is_valid))
     } catch (error) {
       console.error('Error fetching data:', error)
+      setConnectors([])
+      setQueries([])
     } finally {
       setLoading(false)
     }

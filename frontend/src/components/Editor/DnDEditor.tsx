@@ -21,6 +21,7 @@ import { CanvasPreview } from './CanvasPreview'
 import { Toggle } from '@/components/ui/toggle'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import { apiClient } from '@/lib/api-client'
 
 interface DnDEditorProps {
   projectId?: string
@@ -121,18 +122,15 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
   const loadProject = async (id: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${id}`)
-      if (response.ok) {
-        const project = await response.json()
-        setItems(project.components || [])
-        
-        // Update nextIdRef based on existing component IDs
-        const maxId = project.components.reduce((max: number, component: ComponentInstance) => {
-          const idNum = parseInt(component.id.replace('component-', ''))
-          return isNaN(idNum) ? max : Math.max(max, idNum)
-        }, 0)
-        nextIdRef.current = maxId + 1
-      }
+      const project = await apiClient.get(`/api/projects/${id}`)
+      setItems(project.components || [])
+      
+      // Update nextIdRef based on existing component IDs
+      const maxId = project.components.reduce((max: number, component: ComponentInstance) => {
+        const idNum = parseInt(component.id.replace('component-', ''))
+        return isNaN(idNum) ? max : Math.max(max, idNum)
+      }, 0)
+      nextIdRef.current = maxId + 1
     } catch (error) {
       console.error('Failed to load project:', error)
     }
@@ -146,16 +144,9 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
     setSaving(true)
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${projectId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ components: items }),
-      })
-
-      if (response.ok) {
-        setLastSaved(new Date())
-        console.log('Project saved successfully')
-      }
+      await apiClient.put(`/api/projects/${projectId}`, { components: items })
+      setLastSaved(new Date())
+      console.log('Project saved successfully')
     } catch (error) {
       console.error('Failed to save project:', error)
     } finally {
@@ -582,34 +573,18 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
     setExporting(true)
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/projects/${projectId}/export?format=${exportFormat}&data_strategy=${exportDataStrategy}`,
+      const filename = exportFormat === 'static' 
+        ? `${projectName || 'project'}.html`
+        : `${projectName || 'project'}.zip`
+      
+      await apiClient.downloadFile(
+        `/api/projects/${projectId}/export?format=${exportFormat}&data_strategy=${exportDataStrategy}`,
+        filename,
         { method: 'POST' }
       )
-
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        
-        // Set filename based on format
-        const filename = exportFormat === 'static' 
-          ? `${projectName || 'project'}.html`
-          : `${projectName || 'project'}.zip`
-        a.download = filename
-        
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
-        
-        setIsExportDialogOpen(false)
-        console.log('Project exported successfully')
-      } else {
-        const error = await response.json()
-        alert(`Export failed: ${error.detail || 'Unknown error'}`)
-      }
+      
+      setIsExportDialogOpen(false)
+      console.log('Project exported successfully')
     } catch (error) {
       console.error('Failed to export project:', error)
       alert('Export failed. Please try again.')

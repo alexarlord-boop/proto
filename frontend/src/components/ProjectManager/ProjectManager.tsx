@@ -10,15 +10,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, FolderOpen } from 'lucide-react'
+import { Plus, Pencil, Trash2, FolderOpen, LogOut } from 'lucide-react'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import { apiClient } from '@/lib/api-client'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Project {
   id: string
   name: string
   description: string | null
   components: any[]
-  developer_id: string
+  user_id: string
   created_at: string
   updated_at: string
 }
@@ -29,6 +31,7 @@ interface ProjectManagerProps {
 
 export function ProjectManager({ onNavigate }: ProjectManagerProps) {
   const { t } = useTranslation()
+  const { user, logout } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -38,8 +41,7 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
   // Fetch projects from API
   const fetchProjects = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/projects')
-      const data = await response.json()
+      const data = await apiClient.get<Project[]>('/api/projects')
       setProjects(data)
     } catch (error) {
       console.error('Failed to fetch projects:', error)
@@ -55,26 +57,18 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
   // Create new project
   const handleCreate = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name,
-          description: formData.description,
-          components: [],
-          developer_id: 'default',
-        }),
+      const newProject = await apiClient.post<Project>('/api/projects', {
+        name: formData.name,
+        description: formData.description,
+        components: [],
       })
       
-      if (response.ok) {
-        const newProject = await response.json()
-        setProjects([newProject, ...projects])
-        setShowCreateDialog(false)
-        setFormData({ name: '', description: '' })
-        
-        // Navigate to the new project
-        onNavigate(`/editor/${newProject.id}`)
-      }
+      setProjects([newProject, ...projects])
+      setShowCreateDialog(false)
+      setFormData({ name: '', description: '' })
+      
+      // Navigate to the new project
+      onNavigate(`/editor/${newProject.id}`)
     } catch (error) {
       console.error('Failed to create project:', error)
     }
@@ -85,21 +79,14 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
     if (!editingProject) return
     
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${editingProject.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name,
-          description: formData.description,
-        }),
+      const updatedProject = await apiClient.put<Project>(`/api/projects/${editingProject.id}`, {
+        name: formData.name,
+        description: formData.description,
       })
       
-      if (response.ok) {
-        const updatedProject = await response.json()
-        setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p))
-        setEditingProject(null)
-        setFormData({ name: '', description: '' })
-      }
+      setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p))
+      setEditingProject(null)
+      setFormData({ name: '', description: '' })
     } catch (error) {
       console.error('Failed to update project:', error)
     }
@@ -110,13 +97,8 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
     if (!confirm(t('projectManager.deleteConfirm'))) return
     
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${projectId}`, {
-        method: 'DELETE',
-      })
-      
-      if (response.ok) {
-        setProjects(projects.filter(p => p.id !== projectId))
-      }
+      await apiClient.delete(`/api/projects/${projectId}`)
+      setProjects(projects.filter(p => p.id !== projectId))
     } catch (error) {
       console.error('Failed to delete project:', error)
     }
@@ -148,6 +130,12 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
             <p className="text-slate-300 text-sm mt-1">{t('projectManager.subtitle')}</p>
           </div>
           <div className="flex gap-3 items-center">
+            {user && (
+              <div className="text-sm text-slate-300">
+                <span className="font-medium">{user.username}</span>
+                {user.is_admin && <span className="ml-2 text-xs bg-blue-600 px-2 py-1 rounded">Admin</span>}
+              </div>
+            )}
             <LanguageSwitcher />
             <Button
               onClick={() => onNavigate('/query-creator')}
@@ -162,6 +150,14 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
             >
               <Plus className="w-4 h-4 mr-2" />
               {t('projectManager.newProject')}
+            </Button>
+            <Button
+              onClick={logout}
+              variant="outline"
+              className="bg-slate-700 border-slate-600 hover:bg-slate-600"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
             </Button>
           </div>
         </div>
