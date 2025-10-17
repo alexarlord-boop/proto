@@ -15,13 +15,16 @@ import { PropertyPanel } from './PropertyPanel'
 import { COMPONENT_REGISTRY, LAYOUT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
 import { Button } from '@/components/ui/button'
-import { Save, Home, Maximize2, Grid3x3, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Save, Home, Maximize2, Grid3x3, Download, ChevronLeft, ChevronRight, Key } from 'lucide-react'
 import { FullScreenPreview } from './FullScreenPreview'
 import { CanvasPreview } from './CanvasPreview'
 import { Toggle } from '@/components/ui/toggle'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { apiClient } from '@/lib/api-client'
+import { ExportDialog } from './ExportDialog'
+import type { ExportOptions } from './ExportDialog'
+import { APIKeyManager } from './APIKeyManager'
 
 interface DnDEditorProps {
   projectId?: string
@@ -39,6 +42,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
+  const [isAPIKeyManagerOpen, setIsAPIKeyManagerOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<'static' | 'fullstack'>('static')
   const [exportDataStrategy, setExportDataStrategy] = useState<'snapshot' | 'live'>('snapshot')
   const [exporting, setExporting] = useState(false)
@@ -565,7 +569,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
     )
   }
 
-  const handleExport = async () => {
+  const handleExport = async (options: ExportOptions) => {
     if (!projectId) {
       alert('Please save the project before exporting')
       return
@@ -573,17 +577,16 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
     setExporting(true)
     try {
-      const filename = exportFormat === 'static' 
+      const filename = options.format === 'static' 
         ? `${projectName || 'project'}.html`
         : `${projectName || 'project'}.zip`
       
       await apiClient.downloadFile(
-        `/api/projects/${projectId}/export?format=${exportFormat}&data_strategy=${exportDataStrategy}`,
+        `/api/projects/${projectId}/export?format=${options.format}&data_strategy=${options.dataStrategy}&mode=${options.mode}`,
         filename,
         { method: 'POST' }
       )
       
-      setIsExportDialogOpen(false)
       console.log('Project exported successfully')
     } catch (error) {
       console.error('Failed to export project:', error)
@@ -693,6 +696,16 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           
           {projectId && (
             <>
+              <Button
+                onClick={() => setIsAPIKeyManagerOpen(true)}
+                variant="outline"
+                size="sm"
+                className="border-purple-500 bg-purple-600 text-white hover:bg-purple-700 hover:border-purple-400"
+              >
+                <Key className="w-4 h-4 mr-2" />
+                API Keys
+              </Button>
+              
               <Button
                 onClick={() => setIsExportDialogOpen(true)}
                 variant="outline"
@@ -818,8 +831,43 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
         />
       </FullScreenPreview>
 
+      {/* API Key Manager Dialog */}
+      {isAPIKeyManagerOpen && projectId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setIsAPIKeyManagerOpen(false)}>
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-4xl w-full m-4 max-h-[90vh] overflow-y-auto" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold">API Keys - {projectName || 'Project'}</h2>
+              <button
+                onClick={() => setIsAPIKeyManagerOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <APIKeyManager 
+                projectId={projectId} 
+                projectName={projectName || 'Project'} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Export Dialog */}
-      {isExportDialogOpen && (
+      <ExportDialog
+        isOpen={isExportDialogOpen}
+        onClose={() => setIsExportDialogOpen(false)}
+        onExport={handleExport}
+        projectName={projectName || 'Project'}
+      />
+      {/* OLD Export Dialog - keeping for reference during migration */}
+      {false && isExportDialogOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200">

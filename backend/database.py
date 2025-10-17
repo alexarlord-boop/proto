@@ -90,11 +90,46 @@ class Project(Base):
     description = Column(Text, nullable=True)
     components = Column(Text)  # JSON array of ComponentInstance objects
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    visibility = Column(String, default="private")  # private, public, shared
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     owner = relationship("User", back_populates="projects")
+    api_keys = relationship("APIKey", back_populates="project", cascade="all, delete-orphan")
+    shared_with = relationship("ProjectShare", back_populates="project", cascade="all, delete-orphan")
+
+
+class APIKey(Base):
+    """API keys for public project access"""
+    __tablename__ = "api_keys"
+
+    id = Column(String, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True)  # The actual API key
+    name = Column(String)  # Human-readable name
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime, nullable=True)  # Optional expiration
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+    # Relationships
+    project = relationship("Project", back_populates="api_keys")
+
+
+class ProjectShare(Base):
+    """Shared projects - which users can access which projects"""
+    __tablename__ = "project_shares"
+
+    id = Column(String, primary_key=True, index=True)
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    permission = Column(String, default="view")  # view, edit
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+    # Relationships
+    project = relationship("Project", back_populates="shared_with")
 
 
 def get_db():

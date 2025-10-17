@@ -20,7 +20,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 # Security scheme for bearer token
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)  # Don't raise error if no token - allow API key auth
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

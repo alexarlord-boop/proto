@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, FolderOpen, LogOut } from 'lucide-react'
+import { Plus, Pencil, Trash2, FolderOpen, LogOut, Users } from 'lucide-react'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { apiClient } from '@/lib/api-client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -144,6 +144,16 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
             >
               {t('projectManager.queryCreator')}
             </Button>
+            {user?.is_admin && (
+              <Button
+                onClick={() => onNavigate('/admin/users')}
+                variant="outline"
+                className="bg-purple-600 border-purple-700 hover:bg-purple-700 text-white"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Manage Users
+              </Button>
+            )}
             <Button
               onClick={() => setShowCreateDialog(true)}
               className="bg-blue-600 hover:bg-blue-700"

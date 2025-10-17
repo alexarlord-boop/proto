@@ -3,6 +3,7 @@ import { QueryCreator } from "@/components/QueryCreator/QueryCreator.tsx"
 import { ProjectManager } from "@/components/ProjectManager/ProjectManager.tsx"
 import { LoginPage } from "@/components/Auth/LoginPage.tsx"
 import { InitAdminPage } from "@/components/Auth/InitAdminPage.tsx"
+import { UserManagement } from "@/components/Admin/UserManagement.tsx"
 import { AuthProvider, useAuth } from "@/contexts/AuthContext"
 import { apiClient } from "@/lib/api-client"
 import { useState, useEffect } from "react"
@@ -77,6 +78,11 @@ function AppContent() {
     // Route to query creator
     if (currentPath === '/query-creator') {
         return <QueryCreator />
+    }
+
+    // Route to admin user management
+    if (currentPath === '/admin/users') {
+        return <UserManagement />
     }
 
     // Route to project editor
