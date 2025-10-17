@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -24,6 +25,7 @@ import {
 } from '@/components/ui/collapsible'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { SchemaVisualizer } from './SchemaVisualizer'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -79,6 +81,7 @@ interface ConnectorDefaultQueries {
 }
 
 export function QueryCreator() {
+  const { t } = useTranslation()
   const [connectors, setConnectors] = useState<DBConnector[]>([])
   const [queries, setQueries] = useState<SQLQuery[]>([])
   const [selectedConnector, setSelectedConnector] = useState<string>('')
@@ -213,16 +216,16 @@ export function QueryCreator() {
       setConnectorPassword('')
       setShowConnectorForm(false)
       fetchConnectors()
-      alert('Connector created successfully!')
+      alert(t('queryCreator.connectorCreated'))
     } catch (error) {
       console.error('Error creating connector:', error)
-      alert('Failed to create connector')
+      alert(t('queryCreator.connectorCreateFailed'))
     }
   }
 
   const validateQuery = async () => {
     if (!sqlQuery || !selectedConnector) {
-      alert('Please select a connector and enter a query')
+      alert(t('queryCreator.selectConnectorPrompt'))
       return
     }
 
@@ -240,13 +243,13 @@ export function QueryCreator() {
       setValidationResult(data)
     } catch (error) {
       console.error('Error validating query:', error)
-      setValidationResult({ valid: false, message: 'Validation failed' })
+      setValidationResult({ valid: false, message: t('queryCreator.validationFailed') })
     }
   }
 
   const saveQuery = async () => {
     if (!queryName || !sqlQuery || !selectedConnector) {
-      alert('Please fill in all required fields')
+      alert(t('queryCreator.fillRequiredFields'))
       return
     }
 
@@ -282,16 +285,16 @@ export function QueryCreator() {
       setExecutionResult(null)
       setEditingQueryId(null)
       fetchQueries()
-      alert(editingQueryId ? 'Query updated successfully!' : 'Query saved successfully!')
+      alert(editingQueryId ? t('queryCreator.queryUpdated') : t('queryCreator.querySaved'))
     } catch (error) {
       console.error('Error saving query:', error)
-      alert('Failed to save query')
+      alert(t('queryCreator.querySaveFailed'))
     }
   }
 
   const executeQuery = async () => {
     if (!sqlQuery || !selectedConnector) {
-      alert('Please select a connector and enter a query')
+      alert(t('queryCreator.selectConnectorPrompt'))
       return
     }
 
@@ -304,11 +307,11 @@ export function QueryCreator() {
       } else {
         // For new query, validate first
         await validateQuery()
-        alert('Please save the query first before executing')
+        alert(t('queryCreator.saveQueryFirst'))
       }
     } catch (error) {
       console.error('Error executing query:', error)
-      setExecutionResult({ success: false, message: 'Execution failed' })
+      setExecutionResult({ success: false, message: t('queryCreator.executionFailed') })
     }
   }
 
@@ -323,7 +326,7 @@ export function QueryCreator() {
   }
 
   const deleteQuery = async (queryId: string) => {
-    if (!confirm('Are you sure you want to delete this query?')) {
+    if (!confirm(t('queryCreator.deleteQueryConfirm'))) {
       return
     }
 
@@ -385,18 +388,21 @@ export function QueryCreator() {
       {/* Header */}
       <div className="bg-white border-b px-6 py-4 shadow-sm flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">SQL Query Creator</h1>
-          <p className="text-sm text-slate-600">Create and manage SQL queries for your database connectors</p>
+          <h1 className="text-2xl font-bold text-slate-800">{t('queryCreator.title')}</h1>
+          <p className="text-sm text-slate-600">{t('queryCreator.subtitle')}</p>
         </div>
-        <button
-          onClick={() => {
-            window.history.pushState({}, '', '/')
-            window.location.reload()
-          }}
-          className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded transition-colors"
-        >
-          ← Back to Editor
-        </button>
+        <div className="flex items-center gap-3">
+          <LanguageSwitcher />
+          <button
+            onClick={() => {
+              window.history.pushState({}, '', '/')
+              window.location.reload()
+            }}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded transition-colors"
+          >
+            {t('queryCreator.backToEditor')}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
@@ -404,13 +410,13 @@ export function QueryCreator() {
         <div className="w-80 bg-white border-r flex flex-col">
           <Tabs defaultValue="queries" className="flex-1 flex flex-col">
             <TabsList className="m-4 grid grid-cols-2">
-              <TabsTrigger value="queries">Queries</TabsTrigger>
-              <TabsTrigger value="connectors">Connectors</TabsTrigger>
+              <TabsTrigger value="queries">{t('queryCreator.queries')}</TabsTrigger>
+              <TabsTrigger value="connectors">{t('queryCreator.connectors')}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="queries" className="flex-1 overflow-auto px-4 pb-4">
               <Button onClick={newQuery} className="w-full mb-4" variant="outline">
-                + New Query
+                + {t('queryCreator.newQuery')}
               </Button>
               
               <div className="space-y-2">
@@ -431,7 +437,7 @@ export function QueryCreator() {
                           <span className={`text-xs px-2 py-0.5 rounded ${
                             query.is_valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                           }`}>
-                            {query.is_valid ? 'Valid' : 'Invalid'}
+                            {query.is_valid ? t('queryCreator.valid') : t('queryCreator.invalid')}
                           </span>
                         </div>
                       </div>
@@ -444,7 +450,7 @@ export function QueryCreator() {
                         size="sm"
                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        Delete
+                        {t('common.delete')}
                       </Button>
                     </div>
                   </div>
@@ -458,13 +464,13 @@ export function QueryCreator() {
                 className="w-full mb-4" 
                 variant="outline"
               >
-                {showConnectorForm ? 'Cancel' : '+ New Connector'}
+                {showConnectorForm ? t('common.cancel') : '+ ' + t('queryCreator.newConnector')}
               </Button>
 
               {showConnectorForm && (
                 <div className="mb-4 p-4 border rounded-lg bg-slate-50 space-y-3">
                   <Input
-                    placeholder="Connector Name"
+                    placeholder={t('queryCreator.connectorName')}
                     value={connectorName}
                     onChange={(e) => setConnectorName(e.target.value)}
                   />
@@ -481,7 +487,7 @@ export function QueryCreator() {
                   </Select>
 
                   <Input
-                    placeholder={connectorType === 'sqlite' ? 'Database Path' : 'Database Name'}
+                    placeholder={connectorType === 'sqlite' ? t('queryCreator.databasePath') : t('queryCreator.databaseName')}
                     value={connectorDatabase}
                     onChange={(e) => setConnectorDatabase(e.target.value)}
                   />
@@ -489,23 +495,23 @@ export function QueryCreator() {
                   {connectorType !== 'sqlite' && (
                     <>
                       <Input
-                        placeholder="Host"
+                        placeholder={t('queryCreator.host')}
                         value={connectorHost}
                         onChange={(e) => setConnectorHost(e.target.value)}
                       />
                       <Input
-                        placeholder="Port"
+                        placeholder={t('queryCreator.port')}
                         value={connectorPort}
                         onChange={(e) => setConnectorPort(e.target.value)}
                       />
                       <Input
-                        placeholder="Username"
+                        placeholder={t('queryCreator.username')}
                         value={connectorUsername}
                         onChange={(e) => setConnectorUsername(e.target.value)}
                       />
                       <Input
                         type="password"
-                        placeholder="Password"
+                        placeholder={t('queryCreator.password')}
                         value={connectorPassword}
                         onChange={(e) => setConnectorPassword(e.target.value)}
                       />
@@ -513,7 +519,7 @@ export function QueryCreator() {
                   )}
 
                   <Button onClick={createConnector} className="w-full">
-                    Create Connector
+                    {t('queryCreator.createConnector')}
                   </Button>
                 </div>
               )}
@@ -567,7 +573,7 @@ export function QueryCreator() {
                           <CollapsibleContent>
                             <div className="border-t px-3 pb-2">
                               <div className="text-xs font-semibold text-slate-600 mt-2 mb-1 px-2">
-                                Default Queries ({connectorQueries.length})
+                                {t('queryCreator.defaultQueries')} ({connectorQueries.length})
                               </div>
                               <div className="space-y-1">
                                 {connectorQueries.map((query, idx) => (
@@ -610,25 +616,25 @@ export function QueryCreator() {
               <div className="bg-white rounded-lg shadow-sm border p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">
-                    {editingQueryId ? 'Edit Query' : 'New Query'}
+                    {editingQueryId ? t('queryCreator.editQuery') : t('queryCreator.newQuery')}
                   </h2>
                   {editingQueryId && (
                     <Button onClick={newQuery} variant="outline" size="sm">
-                      New Query
+                      {t('queryCreator.newQuery')}
                     </Button>
                   )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <Input
-                    placeholder="Query Name *"
+                    placeholder={t('queryCreator.queryName')}
                     value={queryName}
                     onChange={(e) => setQueryName(e.target.value)}
                   />
                   
                   <Select value={selectedConnector} onValueChange={setSelectedConnector}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select Connector *" />
+                      <SelectValue placeholder={t('queryCreator.selectConnector')} />
                     </SelectTrigger>
                     <SelectContent>
                       {connectors.map((connector) => (
@@ -641,18 +647,18 @@ export function QueryCreator() {
                 </div>
 
                 <Input
-                  placeholder="Description (optional)"
+                  placeholder={t('queryCreator.descriptionOptional')}
                   value={queryDescription}
                   onChange={(e) => setQueryDescription(e.target.value)}
                 />
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    SQL Query *
+                    {t('queryCreator.sqlQuery')}
                   </label>
                   <textarea
                     className="w-full min-h-[200px] p-3 border rounded-lg font-mono text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="SELECT * FROM table_name"
+                    placeholder={t('queryCreator.sqlQueryPlaceholder')}
                     value={sqlQuery}
                     onChange={(e) => setSqlQuery(e.target.value)}
                   />
@@ -660,13 +666,13 @@ export function QueryCreator() {
 
                 <div className="flex gap-3">
                   <Button onClick={validateQuery} variant="outline">
-                    Validate
+                    {t('queryCreator.validate')}
                   </Button>
                   <Button onClick={executeQuery} variant="outline">
-                    Execute
+                    {t('queryCreator.execute')}
                   </Button>
                   <Button onClick={saveQuery}>
-                    {editingQueryId ? 'Update Query' : 'Save Query'}
+                    {editingQueryId ? t('queryCreator.updateQuery') : t('queryCreator.saveQuery')}
                   </Button>
                 </div>
 
@@ -678,7 +684,7 @@ export function QueryCreator() {
                     <div className={`font-medium ${
                       validationResult.valid ? 'text-green-800' : 'text-red-800'
                     }`}>
-                      {validationResult.valid ? '✓ Query is valid' : '✗ Query has errors'}
+                      {validationResult.valid ? t('queryCreator.queryValid') : t('queryCreator.queryInvalid')}
                     </div>
                     <div className={`text-sm mt-1 ${
                       validationResult.valid ? 'text-green-700' : 'text-red-700'
@@ -687,7 +693,7 @@ export function QueryCreator() {
                     </div>
                     {validationResult.query_type && (
                       <div className="text-sm mt-1 text-slate-600">
-                        Query Type: {validationResult.query_type}
+                        {t('queryCreator.queryType')}: {validationResult.query_type}
                       </div>
                     )}
                   </div>
@@ -697,12 +703,12 @@ export function QueryCreator() {
               {/* Schema Browser */}
               {selectedConnector && schema.length > 0 && (
                 <div className="bg-white rounded-lg shadow-sm border p-6">
-                  <h3 className="text-lg font-semibold mb-4">Database Schema</h3>
+                  <h3 className="text-lg font-semibold mb-4">{t('queryCreator.databaseSchema')}</h3>
                   
                   <Tabs defaultValue="diagram" className="w-full">
                     <TabsList className="grid w-full grid-cols-2 mb-4">
-                      <TabsTrigger value="diagram">Visual Diagram</TabsTrigger>
-                      <TabsTrigger value="details">Table Details</TabsTrigger>
+                      <TabsTrigger value="diagram">{t('queryCreator.visualDiagram')}</TabsTrigger>
+                      <TabsTrigger value="details">{t('queryCreator.tableDetails')}</TabsTrigger>
                     </TabsList>
                     
                     <TabsContent value="diagram" className="mt-0">
@@ -719,7 +725,7 @@ export function QueryCreator() {
                               📊 {table.name}
                               {table.foreign_keys && table.foreign_keys.length > 0 && (
                                 <span className="ml-2 text-xs text-blue-600">
-                                  ({table.foreign_keys.length} relationship{table.foreign_keys.length !== 1 ? 's' : ''})
+                                  ({table.foreign_keys.length} {t('queryCreator.relationships')})
                                 </span>
                               )}
                             </summary>
@@ -727,10 +733,10 @@ export function QueryCreator() {
                               <Table>
                                 <TableHeader>
                                   <TableRow>
-                                    <TableHead>Column</TableHead>
-                                    <TableHead>Type</TableHead>
-                                    <TableHead>Nullable</TableHead>
-                                    <TableHead>PK</TableHead>
+                                    <TableHead>{t('queryCreator.column')}</TableHead>
+                                    <TableHead>{t('queryCreator.type')}</TableHead>
+                                    <TableHead>{t('queryCreator.nullable')}</TableHead>
+                                    <TableHead>{t('queryCreator.primaryKey')}</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -738,7 +744,7 @@ export function QueryCreator() {
                                     <TableRow key={column.name}>
                                       <TableCell className="font-mono text-sm">{column.name}</TableCell>
                                       <TableCell className="text-sm text-slate-600">{column.type}</TableCell>
-                                      <TableCell className="text-sm">{column.nullable ? 'Yes' : 'No'}</TableCell>
+                                      <TableCell className="text-sm">{column.nullable ? t('common.yes') : t('common.no')}</TableCell>
                                       <TableCell className="text-sm">{column.primary_key ? '🔑' : ''}</TableCell>
                                     </TableRow>
                                   ))}
@@ -748,7 +754,7 @@ export function QueryCreator() {
                               {/* Foreign Key Relationships */}
                               {table.foreign_keys && table.foreign_keys.length > 0 && (
                                 <div className="mt-4 pt-4 border-t">
-                                  <div className="text-sm font-semibold text-slate-700 mb-2">Foreign Key Relationships:</div>
+                                  <div className="text-sm font-semibold text-slate-700 mb-2">{t('queryCreator.foreignKeyRelationships')}</div>
                                   <div className="space-y-2">
                                     {table.foreign_keys.map((fk, idx) => (
                                       <div key={idx} className="text-xs bg-blue-50 p-2 rounded border border-blue-200">
@@ -774,7 +780,7 @@ export function QueryCreator() {
               {/* Execution Results */}
               {executionResult && (
                 <div className="bg-white rounded-lg shadow-sm border p-6">
-                  <h3 className="text-lg font-semibold mb-4">Query Results</h3>
+                  <h3 className="text-lg font-semibold mb-4">{t('queryCreator.queryResults')}</h3>
                   
                   {executionResult.columns && executionResult.data && (
                     <div className="border rounded-lg overflow-hidden">
@@ -797,7 +803,7 @@ export function QueryCreator() {
                         </TableBody>
                       </Table>
                       <div className="p-3 bg-slate-50 border-t text-sm text-slate-600">
-                        {executionResult.data.length} row(s) returned
+                        {executionResult.data.length} {t('queryCreator.rowsReturned')}
                       </div>
                     </div>
                   )}

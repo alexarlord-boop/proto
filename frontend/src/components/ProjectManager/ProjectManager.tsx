@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -10,6 +11,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Plus, Pencil, Trash2, FolderOpen } from 'lucide-react'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 
 interface Project {
   id: string
@@ -26,6 +28,7 @@ interface ProjectManagerProps {
 }
 
 export function ProjectManager({ onNavigate }: ProjectManagerProps) {
+  const { t } = useTranslation()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -104,7 +107,7 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
 
   // Delete project
   const handleDelete = async (projectId: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return
+    if (!confirm(t('projectManager.deleteConfirm'))) return
     
     try {
       const response = await fetch(`http://localhost:8000/api/projects/${projectId}`, {
@@ -141,23 +144,24 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
       <div className="bg-slate-800 text-white px-6 py-4">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div>
-            <h1 className="text-2xl font-bold">Proto Projects</h1>
-            <p className="text-slate-300 text-sm mt-1">Manage your canvas projects and queries</p>
+            <h1 className="text-2xl font-bold">{t('projectManager.title')}</h1>
+            <p className="text-slate-300 text-sm mt-1">{t('projectManager.subtitle')}</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
+            <LanguageSwitcher />
             <Button
               onClick={() => onNavigate('/query-creator')}
               variant="outline"
               className="bg-slate-700 border-slate-600 hover:bg-slate-600"
             >
-              Query Creator
+              {t('projectManager.queryCreator')}
             </Button>
             <Button
               onClick={() => setShowCreateDialog(true)}
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Plus className="w-4 h-4 mr-2" />
-              New Project
+              {t('projectManager.newProject')}
             </Button>
           </div>
         </div>
@@ -168,16 +172,16 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
         <div className="max-w-7xl mx-auto">
           {loading ? (
             <div className="text-center py-12">
-              <p className="text-slate-500">Loading projects...</p>
+              <p className="text-slate-500">{t('projectManager.loadingProjects')}</p>
             </div>
           ) : projects.length === 0 ? (
             <div className="text-center py-12">
               <FolderOpen className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-              <h3 className="text-lg font-semibold text-slate-700 mb-2">No projects yet</h3>
-              <p className="text-slate-500 mb-4">Create your first canvas project to get started</p>
+              <h3 className="text-lg font-semibold text-slate-700 mb-2">{t('projectManager.noProjectsYet')}</h3>
+              <p className="text-slate-500 mb-4">{t('projectManager.noProjectsDescription')}</p>
               <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
-                Create Project
+                {t('projectManager.createProject')}
               </Button>
             </div>
           ) : (
@@ -185,11 +189,11 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[300px]">Name</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="w-[100px] text-center">Components</TableHead>
-                    <TableHead className="w-[180px]">Last Updated</TableHead>
-                    <TableHead className="w-[180px] text-right">Actions</TableHead>
+                    <TableHead className="w-[300px]">{t('projectManager.tableName')}</TableHead>
+                    <TableHead>{t('projectManager.tableDescription')}</TableHead>
+                    <TableHead className="w-[100px] text-center">{t('projectManager.tableComponents')}</TableHead>
+                    <TableHead className="w-[180px]">{t('projectManager.tableLastUpdated')}</TableHead>
+                    <TableHead className="w-[180px] text-right">{t('projectManager.tableActions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -197,7 +201,7 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
                     <TableRow key={project.id} className="hover:bg-slate-50">
                       <TableCell className="font-medium">{project.name}</TableCell>
                       <TableCell className="text-slate-600">
-                        {project.description || <span className="italic text-slate-400">No description</span>}
+                        {project.description || <span className="italic text-slate-400">{t('projectManager.noDescription')}</span>}
                       </TableCell>
                       <TableCell className="text-center text-slate-600">
                         {project.components?.length || 0}
@@ -213,7 +217,7 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
                             className="bg-blue-600 hover:bg-blue-700"
                           >
                             <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
-                            Open
+                            {t('common.open')}
                           </Button>
                           <Button
                             size="sm"
@@ -246,31 +250,31 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
             <div className="p-6 border-b border-slate-200">
               <h2 className="text-xl font-semibold">
-                {editingProject ? 'Edit Project' : 'Create New Project'}
+                {editingProject ? t('projectManager.editProject') : t('projectManager.createNewProject')}
               </h2>
             </div>
             
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Project Name *
+                  {t('projectManager.projectNameLabel')}
                 </label>
                 <Input
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Enter project name"
+                  placeholder={t('projectManager.projectNamePlaceholder')}
                   autoFocus
                 />
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Description
+                  {t('projectManager.descriptionLabel')}
                 </label>
                 <Input
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Enter project description (optional)"
+                  placeholder={t('projectManager.descriptionPlaceholder')}
                 />
               </div>
             </div>
@@ -284,14 +288,14 @@ export function ProjectManager({ onNavigate }: ProjectManagerProps) {
                   setFormData({ name: '', description: '' })
                 }}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 onClick={editingProject ? handleUpdate : handleCreate}
                 disabled={!formData.name.trim()}
                 className="bg-blue-600 hover:bg-blue-700"
               >
-                {editingProject ? 'Update' : 'Create'}
+                {editingProject ? t('common.update') : t('common.create')}
               </Button>
             </div>
           </div>
