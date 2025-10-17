@@ -2,6 +2,8 @@
 
 A comprehensive low-code platform with project management, SQL query builder, and visual component editor.
 
+> 🚀 **New here?** Check out the **[Quick Start Guide](QUICKSTART.md)** to get up and running in 5 minutes!
+
 ## Features
 
 ### 1. Project Management 🆕
@@ -394,7 +396,7 @@ curl http://localhost:8000/api/queries/{query-id}/execute
 
 ## Documentation
 
-- **QUICKSTART.md** - Step-by-step getting started guide
+- **[QUICKSTART.md](QUICKSTART.md)** ⭐ - Get started in 5 minutes (backend, frontend, demo databases)
 - **PROJECT_CRUD_FEATURE.md** - Detailed technical documentation for projects feature
 - **PROJECT_EXPORT_FEATURE.md** - Complete export feature guide and deployment strategies 🆕
 - **FEATURE_SUMMARY.md** - Complete implementation summary with architecture diagrams
