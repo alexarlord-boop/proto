@@ -15,7 +15,7 @@ import { PropertyPanel } from './PropertyPanel'
 import { COMPONENT_REGISTRY, LAYOUT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
 import { Button } from '@/components/ui/button'
-import { Save, Home, Maximize2, Grid3x3, Download, ChevronLeft, ChevronRight, Key } from 'lucide-react'
+import { Save, Home, Maximize2, Grid3x3, Download, ChevronLeft, ChevronRight, Key, Users } from 'lucide-react'
 import { FullScreenPreview } from './FullScreenPreview'
 import { CanvasPreview } from './CanvasPreview'
 import { Toggle } from '@/components/ui/toggle'
@@ -25,6 +25,8 @@ import { apiClient } from '@/lib/api-client'
 import { ExportDialog } from './ExportDialog'
 import type { ExportOptions } from './ExportDialog'
 import { APIKeyManager } from './APIKeyManager'
+import { ProjectShareManager } from './ProjectShareManager'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface DnDEditorProps {
   projectId?: string
@@ -34,6 +36,7 @@ interface DnDEditorProps {
 
 export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps) {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const [items, setItems] = useState<ComponentInstance[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeDragData, setActiveDragData] = useState<any>(null)
@@ -43,6 +46,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
   const [isAPIKeyManagerOpen, setIsAPIKeyManagerOpen] = useState(false)
+  const [isProjectShareManagerOpen, setIsProjectShareManagerOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<'static' | 'fullstack'>('static')
   const [exportDataStrategy, setExportDataStrategy] = useState<'snapshot' | 'live'>('snapshot')
   const [exporting, setExporting] = useState(false)
@@ -707,6 +711,16 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
               </Button>
               
               <Button
+                onClick={() => setIsProjectShareManagerOpen(true)}
+                variant="outline"
+                size="sm"
+                className="border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700 hover:border-indigo-400"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Share
+              </Button>
+              
+              <Button
                 onClick={() => setIsExportDialogOpen(true)}
                 variant="outline"
                 size="sm"
@@ -853,6 +867,35 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
               <APIKeyManager 
                 projectId={projectId} 
                 projectName={projectName || 'Project'} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Project Share Manager Dialog */}
+      {isProjectShareManagerOpen && projectId && user && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setIsProjectShareManagerOpen(false)}>
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-4xl w-full m-4 max-h-[90vh] overflow-y-auto" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold">Share Project - {projectName || 'Project'}</h2>
+              <button
+                onClick={() => setIsProjectShareManagerOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <ProjectShareManager 
+                projectId={projectId} 
+                projectName={projectName || 'Project'}
+                projectOwnerId={user.id}
               />
             </div>
           </div>

@@ -157,8 +157,8 @@ export function ExportDialog({ isOpen, onClose, onExport, projectName }: ExportD
                   <div>
                     <div className="font-medium">🔒 Protected with Login</div>
                     <div className="text-sm text-gray-600">
-                      Requires user authentication. Only authorized users can view the data.
-                      (Coming soon)
+                      Requires user authentication. Users must login with their Proto account.
+                      More secure - no secrets embedded in HTML.
                     </div>
                   </div>
                 </label>

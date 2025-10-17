@@ -1166,11 +1166,31 @@ async def execute_query(
             SQLQuery.user_id == project.user_id
         ).first()
     else:
-        # Regular user auth
-        query = db.query(SQLQuery).filter(
-            SQLQuery.id == request.query_id,
-            SQLQuery.user_id == auth.id
-        ).first()
+        # Regular user auth - need to check if user has access to the query
+        query = db.query(SQLQuery).filter(SQLQuery.id == request.query_id).first()
+        
+        if query:
+            # Check if user owns the query OR has access through project sharing
+            has_access = query.user_id == auth.id
+            
+            # If not owner, check if user has access to ANY project owned by the query owner
+            if not has_access:
+                # Check if there's any project owned by query owner that's shared with current user
+                project_share = db.query(ProjectShare).join(
+                    Project, ProjectShare.project_id == Project.id
+                ).filter(
+                    Project.user_id == query.user_id,
+                    ProjectShare.user_id == auth.id
+                ).first()
+                has_access = project_share is not None
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="You don't have permission to access this query. Ask the project owner to share the project with you."
+                )
+        else:
+            query = None
     
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
@@ -1230,11 +1250,31 @@ async def execute_query_by_id(
             SQLQuery.user_id == project.user_id
         ).first()
     else:
-        # Regular user auth
-        query = db.query(SQLQuery).filter(
-            SQLQuery.id == query_id,
-            SQLQuery.user_id == auth.id
-        ).first()
+        # Regular user auth - need to check if user has access to the query
+        query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+        
+        if query:
+            # Check if user owns the query OR has access through project sharing
+            has_access = query.user_id == auth.id
+            
+            # If not owner, check if user has access to ANY project owned by the query owner
+            if not has_access:
+                # Check if there's any project owned by query owner that's shared with current user
+                project_share = db.query(ProjectShare).join(
+                    Project, ProjectShare.project_id == Project.id
+                ).filter(
+                    Project.user_id == query.user_id,
+                    ProjectShare.user_id == auth.id
+                ).first()
+                has_access = project_share is not None
+            
+            if not has_access:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="You don't have permission to access this query. Ask the project owner to share the project with you."
+                )
+        else:
+            query = None
     
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
@@ -1584,7 +1624,45 @@ def generate_static_bundle(
     const DATA_STRATEGY = {json.dumps(data_strategy)};
     const MODE = {json.dumps(mode)};
     const API_KEY = {json.dumps(api_key)};
+    const API_BASE_URL = 'http://localhost:8000';
     const SNAPSHOT_DATA = {json.dumps(snapshot_data)};
+    
+    // Authentication state management
+    let authToken = localStorage.getItem('proto_auth_token');
+    let isAuthenticated = !!authToken;
+    
+    // Login function for protected mode
+    async function login(username, password) {{
+      try {{
+        const response = await fetch(`${{API_BASE_URL}}/api/auth/login`, {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ username, password }})
+        }});
+        
+        if (!response.ok) {{
+          const error = await response.json();
+          throw new Error(error.detail || 'Login failed');
+        }}
+        
+        const data = await response.json();
+        authToken = data.access_token;
+        localStorage.setItem('proto_auth_token', authToken);
+        isAuthenticated = true;
+        return true;
+      }} catch (error) {{
+        console.error('Login error:', error);
+        throw error;
+      }}
+    }}
+    
+    // Logout function
+    function logout() {{
+      authToken = null;
+      localStorage.removeItem('proto_auth_token');
+      isAuthenticated = false;
+      window.location.reload();
+    }}
     
     // Component renderers
     function Button({{ text, variant, size, disabled, onClick }}) {{
@@ -1744,13 +1822,27 @@ def generate_static_bundle(
         setLoading(true);
         try {{
           const headers = {{}};
+          
+          // Add authentication based on mode
           if (MODE === 'public' && API_KEY) {{
             headers['X-API-Key'] = API_KEY;
+          }} else if (MODE === 'protected' && authToken) {{
+            headers['Authorization'] = `Bearer ${{authToken}}`;
           }}
           
-          const response = await fetch(`http://localhost:8000/api/queries/${{id}}/execute`, {{
+          const response = await fetch(`${{API_BASE_URL}}/api/queries/${{id}}/execute`, {{
             headers: headers
           }});
+          
+          if (response.status === 401) {{
+            setError('Authentication required. Please login.');
+            if (MODE === 'protected') {{
+              isAuthenticated = false;
+              localStorage.removeItem('proto_auth_token');
+              window.location.reload();
+            }}
+            return;
+          }}
           
           if (!response.ok) {{
             throw new Error(`HTTP error! status: ${{response.status}}`);
@@ -1770,13 +1862,27 @@ def generate_static_bundle(
         setLoading(true);
         try {{
           const headers = {{}};
+          
+          // Add authentication based on mode
           if (MODE === 'public' && API_KEY) {{
             headers['X-API-Key'] = API_KEY;
+          }} else if (MODE === 'protected' && authToken) {{
+            headers['Authorization'] = `Bearer ${{authToken}}`;
           }}
           
           const response = await fetch(url, {{
             headers: headers
           }});
+          
+          if (response.status === 401) {{
+            setError('Authentication required. Please login.');
+            if (MODE === 'protected') {{
+              isAuthenticated = false;
+              localStorage.removeItem('proto_auth_token');
+              window.location.reload();
+            }}
+            return;
+          }}
           
           if (!response.ok) {{
             throw new Error(`HTTP error! status: ${{response.status}}`);
@@ -2001,10 +2107,109 @@ def generate_static_bundle(
       }}
     }}
     
+    // Login component for protected mode
+    function LoginForm() {{
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+      
+      const handleSubmit = async (e) => {{
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        
+        try {{
+          await login(username, password);
+          window.location.reload();
+        }} catch (err) {{
+          setError(err.message || 'Login failed. Please check your credentials.');
+        }} finally {{
+          setLoading(false);
+        }}
+      }};
+      
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 px-4">
+          <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">{{PROJECT_NAME}}</h1>
+              <p className="text-gray-600 text-sm">Please login to view this dashboard</p>
+            </div>
+            
+            <form onSubmit={{handleSubmit}} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input
+                  type="text"
+                  value={{username}}
+                  onChange={{(e) => setUsername(e.target.value)}}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter your username"
+                  required
+                  disabled={{loading}}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={{password}}
+                  onChange={{(e) => setPassword(e.target.value)}}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter your password"
+                  required
+                  disabled={{loading}}
+                />
+              </div>
+              
+              {{error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-red-800 text-sm">{{error}}</p>
+                </div>
+              )}}
+              
+              <button
+                type="submit"
+                disabled={{loading}}
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {{loading ? 'Logging in...' : 'Login'}}
+              </button>
+            </form>
+            
+            <div className="mt-6 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-blue-800 text-xs">
+                🔒 This dashboard is protected. Use your Proto account credentials to login.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }}
+    
     // Main App component
     function App() {{
+      // Show login form if protected mode and not authenticated
+      if (MODE === 'protected' && !isAuthenticated) {{
+        return <LoginForm />;
+      }}
+      
+      // Show main content if authenticated or public mode
       return (
         <div className="w-full min-h-screen bg-gradient-to-br from-white to-slate-50">
+          {{MODE === 'protected' && (
+            <div className="fixed top-4 right-4 z-50">
+              <button
+                onClick={{logout}}
+                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50 transition-colors shadow-md"
+              >
+                Logout
+              </button>
+            </div>
+          )}}
+          
           <div className="relative w-full min-h-screen">
             {{COMPONENTS.map((component) => {{
               if (component.parentId) return null;
