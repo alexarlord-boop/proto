@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   DndContext,
   DragOverlay,
@@ -19,8 +20,7 @@ import { FullScreenPreview } from './FullScreenPreview'
 import { CanvasPreview } from './CanvasPreview'
 import { Toggle } from '@/components/ui/toggle'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { RadioGroup } from '@/components/ui/radio-group'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 
 interface DnDEditorProps {
   projectId?: string
@@ -29,6 +29,7 @@ interface DnDEditorProps {
 }
 
 export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps) {
+  const { t } = useTranslation()
   const [items, setItems] = useState<ComponentInstance[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeDragData, setActiveDragData] = useState<any>(null)
@@ -650,16 +651,16 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
               className="text-white hover:bg-slate-700"
             >
               <Home className="w-4 h-4 mr-2" />
-              Home
+              {t('editor.home')}
             </Button>
           )}
           <div>
             <h1 className="text-lg font-semibold">
-              {projectName || 'Untitled Project'}
+              {projectName || t('editor.untitledProject')}
             </h1>
             {lastSaved && (
               <p className="text-xs text-slate-400">
-                Last saved: {lastSaved.toLocaleTimeString()}
+                {t('editor.lastSaved')}: {lastSaved.toLocaleTimeString()}
               </p>
             )}
           </div>
@@ -677,12 +678,12 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                 className="data-[state=on]:bg-blue-600 data-[state=on]:text-white data-[state=on]:border-blue-600 border-slate-500 bg-slate-700 text-slate-300 hover:bg-slate-600"
               >
                 <Grid3x3 className="w-4 h-4" />
-                <span className="text-sm">Snap to Grid</span>
+                <span className="text-sm">{t('editor.snapToGrid')}</span>
               </Toggle>
             </div>
             {snapToGrid && (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">Grid:</span>
+                <span className="text-xs text-slate-400">{t('editor.gridSize')}:</span>
                 <Select 
                   value={gridSize.toString()} 
                   onValueChange={(value) => setGridSize(parseInt(value))}
@@ -703,6 +704,8 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
             )}
           </div>
 
+          <LanguageSwitcher />
+
           <Button
             onClick={() => setIsPreviewOpen(true)}
             variant="outline"
@@ -710,7 +713,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
             className="border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:border-slate-400"
           >
             <Maximize2 className="w-4 h-4 mr-2" />
-            Preview
+            {t('editor.preview')}
           </Button>
           
           {projectId && (
@@ -722,7 +725,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                 className="border-green-500 bg-green-600 text-white hover:bg-green-700 hover:border-green-400"
               >
                 <Download className="w-4 h-4 mr-2" />
-                Export
+                {t('editor.export')}
               </Button>
               
               <Button
@@ -732,7 +735,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                 size="sm"
               >
                 <Save className="w-4 h-4 mr-2" />
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? t('editor.saving') : t('editor.save')}
               </Button>
             </>
           )}
@@ -832,7 +835,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
       <FullScreenPreview
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
-        title={`Preview: ${projectName || 'Untitled Project'}`}
+        title={`${t('editor.preview')}: ${projectName || t('editor.untitledProject')}`}
       >
         <CanvasPreview 
           items={items} 
@@ -845,7 +848,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200">
-              <h2 className="text-xl font-semibold text-slate-900">Export Project</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t('editor.exportProject')}</h2>
               <p className="text-sm text-slate-600 mt-1">
                 Create a distributable version of your application
               </p>
@@ -855,7 +858,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
               {/* Export Format */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-3">
-                  Export Format
+                  {t('editor.exportFormat')}
                 </label>
                 <div className="space-y-3">
                   <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
@@ -868,9 +871,9 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                       className="mt-1 mr-3"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-slate-900">Static Bundle (HTML)</div>
+                      <div className="font-medium text-slate-900">{t('editor.staticHtml')}</div>
                       <div className="text-sm text-slate-600 mt-1">
-                        Single HTML file that can be opened in any browser. Perfect for simple deployments to static hosts like Vercel, Netlify, or GitHub Pages.
+                        {t('editor.staticDescription')}
                       </div>
                       <div className="flex gap-2 mt-2">
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
@@ -893,9 +896,9 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                       className="mt-1 mr-3"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-slate-900">Full-Stack Package (ZIP)</div>
+                      <div className="font-medium text-slate-900">{t('editor.fullstackApp')}</div>
                       <div className="text-sm text-slate-600 mt-1">
-                        Complete application with frontend + backend + database connections. Includes Docker setup for easy deployment.
+                        {t('editor.fullstackDescription')}
                       </div>
                       <div className="flex gap-2 mt-2">
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
@@ -913,7 +916,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
               {/* Data Strategy */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-3">
-                  Data Strategy
+                  {t('editor.dataStrategy')}
                 </label>
                 <div className="space-y-3">
                   <label className="flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
@@ -926,9 +929,9 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                       className="mt-1 mr-3"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-slate-900">Snapshot Data</div>
+                      <div className="font-medium text-slate-900">{t('editor.snapshot')}</div>
                       <div className="text-sm text-slate-600 mt-1">
-                        Execute all queries now and embed current results. App works offline but data is static.
+                        {t('editor.snapshotDescription')}
                       </div>
                       <div className="flex gap-2 mt-2">
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
@@ -948,9 +951,9 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                       className="mt-1 mr-3"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-slate-900">Live Queries</div>
+                      <div className="font-medium text-slate-900">{t('editor.liveConnection')}</div>
                       <div className="text-sm text-slate-600 mt-1">
-                        Keep API calls to backend server. Data stays fresh but requires backend to be running.
+                        {t('editor.liveDescription')}
                       </div>
                       <div className="flex gap-2 mt-2">
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
@@ -1000,7 +1003,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                 onClick={() => setIsExportDialogOpen(false)}
                 disabled={exporting}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 onClick={handleExport}
@@ -1008,7 +1011,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
                 className="bg-green-600 hover:bg-green-700"
               >
                 <Download className="w-4 h-4 mr-2" />
-                {exporting ? 'Exporting...' : 'Export Project'}
+                {exporting ? t('editor.exporting') : t('editor.exportButton')}
               </Button>
             </div>
           </div>
