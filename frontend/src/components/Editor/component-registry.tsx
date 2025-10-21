@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { apiClient } from '@/lib/api-client'
 import { getRowFormatting, getCellFormatting, formatStyleToCSS, mergeStyles } from '@/lib/table-formatting'
 import type {
   ComponentInstance,
@@ -614,14 +615,12 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
       setLoading(true)
       setError(null)
       
-      fetch(dataSourceUrl)
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-          }
-          return response.json()
-        })
-        .then((result) => {
+      const loadData = async () => {
+        try {
+          // Extract just the path if it's a full URL
+          const url = dataSourceUrl.replace('http://localhost:8000', '')
+          const result = await apiClient.get(url)
+          
           // Handle response that includes both columns and data (from SQL queries)
           if (result.columns && result.data) {
             setColumns(result.columns)
@@ -639,12 +638,14 @@ function TableComponent({ component, props }: { component: ComponentInstance; pr
             setColumns(autoDetectColumns(dataArray))
           }
           setLoading(false)
-        })
-        .catch((err) => {
+        } catch (err: any) {
           console.error('Error fetching table data:', err)
           setError(err.message || 'Failed to fetch data')
           setLoading(false)
-        })
+        }
+      }
+      
+      loadData()
     } else {
       // Use static data
       const staticData = props.data || []

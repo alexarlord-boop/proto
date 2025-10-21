@@ -52,9 +52,8 @@ export function ProjectRenderer({
  * Recursive component renderer - handles nested children in containers
  */
 function ComponentRenderer({ 
-  component, 
-  mode 
-}: { 
+  component
+                           }: {
   component: ComponentInstance
   mode: 'production' | 'development'
 }) {

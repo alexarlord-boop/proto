@@ -15,12 +15,18 @@ import { PropertyPanel } from './PropertyPanel'
 import { COMPONENT_REGISTRY, LAYOUT_REGISTRY } from './component-registry'
 import type { ComponentInstance, EventHandler } from './types'
 import { Button } from '@/components/ui/button'
-import { Save, Home, Maximize2, Grid3x3, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Save, Home, Maximize2, Grid3x3, Download, ChevronLeft, ChevronRight, Key, Users } from 'lucide-react'
 import { FullScreenPreview } from './FullScreenPreview'
 import { CanvasPreview } from './CanvasPreview'
 import { Toggle } from '@/components/ui/toggle'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
+import { apiClient } from '@/lib/api-client'
+import { ExportDialog } from './ExportDialog'
+import type { ExportOptions } from './ExportDialog'
+import { APIKeyManager } from './APIKeyManager'
+import { ProjectShareManager } from './ProjectShareManager'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface DnDEditorProps {
   projectId?: string
@@ -30,6 +36,7 @@ interface DnDEditorProps {
 
 export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps) {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const [items, setItems] = useState<ComponentInstance[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeDragData, setActiveDragData] = useState<any>(null)
@@ -38,6 +45,8 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
+  const [isAPIKeyManagerOpen, setIsAPIKeyManagerOpen] = useState(false)
+  const [isProjectShareManagerOpen, setIsProjectShareManagerOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<'static' | 'fullstack'>('static')
   const [exportDataStrategy, setExportDataStrategy] = useState<'snapshot' | 'live'>('snapshot')
   const [exporting, setExporting] = useState(false)
@@ -121,18 +130,15 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
   const loadProject = async (id: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${id}`)
-      if (response.ok) {
-        const project = await response.json()
-        setItems(project.components || [])
-        
-        // Update nextIdRef based on existing component IDs
-        const maxId = project.components.reduce((max: number, component: ComponentInstance) => {
-          const idNum = parseInt(component.id.replace('component-', ''))
-          return isNaN(idNum) ? max : Math.max(max, idNum)
-        }, 0)
-        nextIdRef.current = maxId + 1
-      }
+      const project = await apiClient.get(`/api/projects/${id}`)
+      setItems(project.components || [])
+      
+      // Update nextIdRef based on existing component IDs
+      const maxId = project.components.reduce((max: number, component: ComponentInstance) => {
+        const idNum = parseInt(component.id.replace('component-', ''))
+        return isNaN(idNum) ? max : Math.max(max, idNum)
+      }, 0)
+      nextIdRef.current = maxId + 1
     } catch (error) {
       console.error('Failed to load project:', error)
     }
@@ -146,16 +152,9 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
     setSaving(true)
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${projectId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ components: items }),
-      })
-
-      if (response.ok) {
-        setLastSaved(new Date())
-        console.log('Project saved successfully')
-      }
+      await apiClient.put(`/api/projects/${projectId}`, { components: items })
+      setLastSaved(new Date())
+      console.log('Project saved successfully')
     } catch (error) {
       console.error('Failed to save project:', error)
     } finally {
@@ -574,7 +573,7 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
     )
   }
 
-  const handleExport = async () => {
+  const handleExport = async (options: ExportOptions) => {
     if (!projectId) {
       alert('Please save the project before exporting')
       return
@@ -582,34 +581,17 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
 
     setExporting(true)
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/projects/${projectId}/export?format=${exportFormat}&data_strategy=${exportDataStrategy}`,
+      const filename = options.format === 'static' 
+        ? `${projectName || 'project'}.html`
+        : `${projectName || 'project'}.zip`
+      
+      await apiClient.downloadFile(
+        `/api/projects/${projectId}/export?format=${options.format}&data_strategy=${options.dataStrategy}&mode=${options.mode}`,
+        filename,
         { method: 'POST' }
       )
-
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        
-        // Set filename based on format
-        const filename = exportFormat === 'static' 
-          ? `${projectName || 'project'}.html`
-          : `${projectName || 'project'}.zip`
-        a.download = filename
-        
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
-        
-        setIsExportDialogOpen(false)
-        console.log('Project exported successfully')
-      } else {
-        const error = await response.json()
-        alert(`Export failed: ${error.detail || 'Unknown error'}`)
-      }
+      
+      console.log('Project exported successfully')
     } catch (error) {
       console.error('Failed to export project:', error)
       alert('Export failed. Please try again.')
@@ -718,6 +700,26 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
           
           {projectId && (
             <>
+              <Button
+                onClick={() => setIsAPIKeyManagerOpen(true)}
+                variant="outline"
+                size="sm"
+                className="border-purple-500 bg-purple-600 text-white hover:bg-purple-700 hover:border-purple-400"
+              >
+                <Key className="w-4 h-4 mr-2" />
+                API Keys
+              </Button>
+              
+              <Button
+                onClick={() => setIsProjectShareManagerOpen(true)}
+                variant="outline"
+                size="sm"
+                className="border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700 hover:border-indigo-400"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Share
+              </Button>
+              
               <Button
                 onClick={() => setIsExportDialogOpen(true)}
                 variant="outline"
@@ -843,8 +845,72 @@ export function DnDEditor({ projectId, projectName, onNavigate }: DnDEditorProps
         />
       </FullScreenPreview>
 
+      {/* API Key Manager Dialog */}
+      {isAPIKeyManagerOpen && projectId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setIsAPIKeyManagerOpen(false)}>
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-4xl w-full m-4 max-h-[90vh] overflow-y-auto" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold">API Keys - {projectName || 'Project'}</h2>
+              <button
+                onClick={() => setIsAPIKeyManagerOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <APIKeyManager 
+                projectId={projectId} 
+                projectName={projectName || 'Project'} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Project Share Manager Dialog */}
+      {isProjectShareManagerOpen && projectId && user && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setIsProjectShareManagerOpen(false)}>
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-4xl w-full m-4 max-h-[90vh] overflow-y-auto" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold">Share Project - {projectName || 'Project'}</h2>
+              <button
+                onClick={() => setIsProjectShareManagerOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <ProjectShareManager 
+                projectId={projectId} 
+                projectName={projectName || 'Project'}
+                projectOwnerId={user.id}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Export Dialog */}
-      {isExportDialogOpen && (
+      <ExportDialog
+        isOpen={isExportDialogOpen}
+        onClose={() => setIsExportDialogOpen(false)}
+        onExport={handleExport}
+        projectName={projectName || 'Project'}
+      />
+      {/* OLD Export Dialog - keeping for reference during migration */}
+      {false && isExportDialogOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200">

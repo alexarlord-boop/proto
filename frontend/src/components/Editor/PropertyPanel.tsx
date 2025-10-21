@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FormattingRuleManager } from './FormattingRuleManager'
 import { ColumnConfigManager } from './ColumnConfigManager'
 import { QueryTreeSelect } from './QueryTreeSelect'
+import { apiClient } from '@/lib/api-client'
 import type { 
   ComponentInstance, 
   PropertyDefinition, 
@@ -21,9 +22,6 @@ import type {
   FormattingRule,
   ColumnConfig,
 } from './types'
-
-const API_BASE = 'http://localhost:8000'
-
 interface PropertyPanelProps {
   component: ComponentInstance | null
   propertySchema: PropertyDefinition[]
@@ -61,8 +59,7 @@ export function PropertyPanel({
     try {
       // Try to fetch from query
       if (tableProps.dataSourceType === 'query' && tableProps.queryId) {
-        const response = await fetch(`${API_BASE}/api/queries/${tableProps.queryId}/execute`)
-        const result = await response.json()
+        const result = await apiClient.get(`/api/queries/${tableProps.queryId}/execute`)
         if (result.columns) {
           setAvailableColumns(result.columns.map((c: any) => c.key))
           return
@@ -71,8 +68,8 @@ export function PropertyPanel({
       
       // Try to fetch from URL
       if (tableProps.dataSourceType === 'url' && tableProps.dataSource) {
-        const response = await fetch(tableProps.dataSource)
-        const result = await response.json()
+        const url = tableProps.dataSource.replace('http://localhost:8000', '')
+        const result = await apiClient.get(url)
         const data = Array.isArray(result) ? result : result.data
         if (data && data.length > 0) {
           setAvailableColumns(Object.keys(data[0]))

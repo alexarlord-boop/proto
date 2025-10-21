@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,9 +26,7 @@ import {
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { SchemaVisualizer } from './SchemaVisualizer'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
-
-const API_BASE = 'http://localhost:8000'
-
+import { apiClient } from '@/lib/api-client'
 interface DBConnector {
   id: string
   name: string
@@ -74,12 +72,6 @@ interface DefaultQuery {
   sql_query: string
   query_type: string
 }
-
-interface ConnectorDefaultQueries {
-  connector_id: string
-  queries: DefaultQuery[]
-}
-
 export function QueryCreator() {
   const { t } = useTranslation()
   const [connectors, setConnectors] = useState<DBConnector[]>([])
@@ -135,28 +127,27 @@ export function QueryCreator() {
 
   const fetchConnectors = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/connectors`)
-      const data = await response.json()
+      const data = await apiClient.get('/api/connectors')
       setConnectors(data)
     } catch (error) {
       console.error('Error fetching connectors:', error)
+      setConnectors([])
     }
   }
 
   const fetchQueries = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/queries`)
-      const data = await response.json()
+      const data = await apiClient.get('/api/queries')
       setQueries(data)
     } catch (error) {
       console.error('Error fetching queries:', error)
+      setQueries([])
     }
   }
 
   const fetchSchema = async (connectorId: string) => {
     try {
-      const response = await fetch(`${API_BASE}/api/connectors/${connectorId}/schema`)
-      const data = await response.json()
+      const data = await apiClient.get(`/api/connectors/${connectorId}/schema`)
       setSchema(data.tables || [])
     } catch (error) {
       console.error('Error fetching schema:', error)
@@ -166,8 +157,7 @@ export function QueryCreator() {
 
   const fetchDefaultQueries = async (connectorId: string) => {
     try {
-      const response = await fetch(`${API_BASE}/api/connectors/${connectorId}/default-queries`)
-      const data = await response.json()
+      const data = await apiClient.get(`/api/connectors/${connectorId}/default-queries`)
       if (data.success && data.queries) {
         setDefaultQueries(prev => ({
           ...prev,
@@ -194,17 +184,7 @@ export function QueryCreator() {
         payload.password = connectorPassword
       }
 
-      const response = await fetch(`${API_BASE}/api/connectors`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        alert(`Error: ${error.detail}`)
-        return
-      }
+      await apiClient.post('/api/connectors', payload)
 
       // Reset form and refresh
       setConnectorName('')
@@ -230,16 +210,11 @@ export function QueryCreator() {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/queries/validate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sql_query: sqlQuery,
-          connector_id: selectedConnector,
-        }),
+      const data = await apiClient.post('/api/queries/validate', {
+        sql_query: sqlQuery,
+        connector_id: selectedConnector,
       })
 
-      const data = await response.json()
       setValidationResult(data)
     } catch (error) {
       console.error('Error validating query:', error)
@@ -254,27 +229,17 @@ export function QueryCreator() {
     }
 
     try {
-      const url = editingQueryId 
-        ? `${API_BASE}/api/queries/${editingQueryId}`
-        : `${API_BASE}/api/queries`
-      
-      const method = editingQueryId ? 'PUT' : 'POST'
+      const queryData = {
+        name: queryName,
+        description: queryDescription,
+        sql_query: sqlQuery,
+        connector_id: selectedConnector,
+      }
 
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: queryName,
-          description: queryDescription,
-          sql_query: sqlQuery,
-          connector_id: selectedConnector,
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        alert(`Error: ${error.detail}`)
-        return
+      if (editingQueryId) {
+        await apiClient.put(`/api/queries/${editingQueryId}`, queryData)
+      } else {
+        await apiClient.post('/api/queries', queryData)
       }
 
       // Reset form and refresh
@@ -301,8 +266,7 @@ export function QueryCreator() {
     try {
       // If editing existing query, use its ID
       if (editingQueryId) {
-        const response = await fetch(`${API_BASE}/api/queries/${editingQueryId}/execute`)
-        const data = await response.json()
+        const data = await apiClient.get(`/api/queries/${editingQueryId}/execute`)
         setExecutionResult(data)
       } else {
         // For new query, validate first
@@ -331,13 +295,7 @@ export function QueryCreator() {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/queries/${queryId}`, {
-        method: 'DELETE',
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to delete query')
-      }
+      await apiClient.delete(`/api/queries/${queryId}`)
 
       fetchQueries()
       if (editingQueryId === queryId) {

@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 import uuid
 import json
@@ -12,8 +12,52 @@ import tempfile
 import shutil
 import zipfile
 
-from database import get_db, init_db, DBConnector, SQLQuery, Project
+from database import get_db, init_db, DBConnector, SQLQuery, Project, User, APIKey, ProjectShare
 from db_manager import db_manager
+from auth import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    get_current_admin_user,
+    get_optional_current_user
+)
+
+
+def validate_api_key(
+    x_api_key: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> Optional[APIKey]:
+    """Validate API key from header. Returns APIKey if valid, None if no key provided."""
+    if not x_api_key:
+        return None
+    
+    # Check if API key exists and is valid
+    api_key = db.query(APIKey).filter(
+        APIKey.key == x_api_key,
+        APIKey.is_active == True
+    ).first()
+    
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    # Check if expired
+    if api_key.expires_at and api_key.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=401, detail="API key has expired")
+    
+    return api_key
+
+
+def get_current_user_or_api_key(
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    api_key: Optional[APIKey] = Depends(validate_api_key)
+) -> Union[User, APIKey]:
+    """Get either current user from JWT or API key. Raises 401 if neither is present."""
+    if current_user:
+        return current_user
+    if api_key:
+        return api_key
+    raise HTTPException(status_code=401, detail="Authentication required")
 
 
 app = FastAPI(title="Proto Query Builder API", version="1.0.0")
@@ -78,7 +122,6 @@ class SQLQueryCreate(BaseModel):
     sql_query: str
     connector_id: str
     project_id: str = "default"
-    developer_id: str = "default"
 
 
 class SQLQueryUpdate(BaseModel):
@@ -95,7 +138,7 @@ class SQLQueryResponse(BaseModel):
     sql_query: str
     connector_id: str
     project_id: str
-    developer_id: str
+    user_id: str
     is_valid: bool
     validation_error: Optional[str]
     last_executed: Optional[datetime]
@@ -121,7 +164,6 @@ class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
     components: List[dict] = []
-    developer_id: str = "default"
 
 
 class ProjectUpdate(BaseModel):
@@ -135,12 +177,96 @@ class ProjectResponse(BaseModel):
     name: str
     description: Optional[str]
     components: List[dict]
-    developer_id: str
+    user_id: str
     created_at: datetime
     updated_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: str
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse
+
+
+class InitAdminRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_admin: Optional[bool] = None
+    password: Optional[str] = None
+
+
+class APIKeyCreate(BaseModel):
+    name: str
+    project_id: str
+    expires_in_days: Optional[int] = None
+
+
+class APIKeyResponse(BaseModel):
+    id: str
+    key: str
+    name: str
+    project_id: str
+    is_active: bool
+    expires_at: Optional[datetime]
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class ProjectShareCreate(BaseModel):
+    project_id: str
+    user_id: str
+    permission: str = "view"  # only view permission supported
+
+
+class ProjectShareResponse(BaseModel):
+    id: str
+    project_id: str
+    user_id: str
+    permission: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class ExportOptions(BaseModel):
+    mode: str = "protected"  # "protected" or "public"
+    format: str = "html"  # "html" or "fullstack"
 
 
 # ============================================================================
@@ -192,14 +318,491 @@ async def test():
 
 
 # ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+@app.post("/api/admin/init", response_model=UserResponse)
+async def initialize_admin(request: InitAdminRequest, db: Session = Depends(get_db)):
+    """Initialize the first admin user (only works if no users exist)"""
+    # Check if any users exist
+    existing_users = db.query(User).count()
+    if existing_users > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Admin user already exists. Use login instead."
+        )
+    
+    # Check if username or email already exists (shouldn't happen, but safe check)
+    existing = db.query(User).filter(
+        (User.username == request.username) | (User.email == request.email)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+    
+    # Create admin user
+    admin_user = User(
+        id=str(uuid.uuid4()),
+        username=request.username,
+        email=request.email,
+        hashed_password=get_password_hash(request.password),
+        is_active=True,
+        is_admin=True
+    )
+    
+    db.add(admin_user)
+    db.commit()
+    db.refresh(admin_user)
+    
+    return admin_user
+
+
+@app.post("/api/auth/register", response_model=UserResponse)
+async def register(
+    request: UserRegister,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Register a new user (admin only)"""
+    # Check if username or email already exists
+    existing = db.query(User).filter(
+        (User.username == request.username) | (User.email == request.email)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+    
+    # Create new user
+    new_user = User(
+        id=str(uuid.uuid4()),
+        username=request.username,
+        email=request.email,
+        hashed_password=get_password_hash(request.password),
+        is_active=True,
+        is_admin=False
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return new_user
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(request: UserLogin, db: Session = Depends(get_db)):
+    """Login and receive an access token"""
+    # Find user by username
+    user = db.query(User).filter(User.username == request.username).first()
+    
+    if not user or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="User account is inactive"
+        )
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.id})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user
+    }
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current authenticated user information"""
+    return current_user
+
+
+@app.get("/api/auth/check")
+async def check_auth_status(db: Session = Depends(get_db)):
+    """Check if admin exists and authentication is required"""
+    user_count = db.query(User).count()
+    admin_exists = db.query(User).filter(User.is_admin == True).count() > 0
+    
+    return {
+        "requires_init": user_count == 0,
+        "admin_exists": admin_exists,
+        "auth_required": user_count > 0
+    }
+
+
+# ============================================================================
+# User Management Endpoints (Admin Only)
+# ============================================================================
+
+@app.get("/api/users", response_model=List[UserResponse])
+async def list_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """List all users (admin only)"""
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return users
+
+
+@app.get("/api/users/{user_id}", response_model=UserResponse)
+async def get_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Get a specific user by ID (admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.put("/api/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: str,
+    user_update: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Update a user (admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update fields if provided
+    if user_update.username is not None:
+        # Check if username is already taken
+        existing = db.query(User).filter(
+            User.username == user_update.username,
+            User.id != user_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        user.username = user_update.username
+    
+    if user_update.email is not None:
+        # Check if email is already taken
+        existing = db.query(User).filter(
+            User.email == user_update.email,
+            User.id != user_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already exists")
+        user.email = user_update.email
+    
+    if user_update.is_active is not None:
+        user.is_active = user_update.is_active
+    
+    if user_update.is_admin is not None:
+        user.is_admin = user_update.is_admin
+    
+    if user_update.password is not None:
+        user.hashed_password = get_password_hash(user_update.password)
+    
+    user.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(user)
+    
+    return user
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """Delete a user (admin only)"""
+    # Prevent deleting yourself
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    db.delete(user)
+    db.commit()
+    
+    return {"message": "User deleted successfully"}
+
+
+# ============================================================================
+# API Key Endpoints
+# ============================================================================
+
+@app.post("/api/projects/{project_id}/api-keys", response_model=APIKeyResponse)
+async def create_api_key(
+    project_id: str,
+    api_key_data: APIKeyCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create an API key for a project"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Generate a secure API key
+    import secrets
+    api_key = f"pk_{secrets.token_urlsafe(32)}"
+    
+    # Calculate expiration if provided
+    expires_at = None
+    if api_key_data.expires_in_days:
+        from datetime import timedelta
+        expires_at = datetime.utcnow() + timedelta(days=api_key_data.expires_in_days)
+    
+    # Create API key
+    db_api_key = APIKey(
+        id=str(uuid.uuid4()),
+        key=api_key,
+        name=api_key_data.name,
+        project_id=project_id,
+        is_active=True,
+        expires_at=expires_at,
+        created_by=current_user.id
+    )
+    
+    db.add(db_api_key)
+    db.commit()
+    db.refresh(db_api_key)
+    
+    return db_api_key
+
+
+@app.get("/api/projects/{project_id}/api-keys", response_model=List[APIKeyResponse])
+async def list_api_keys(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all API keys for a project"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    api_keys = db.query(APIKey).filter(APIKey.project_id == project_id).all()
+    return api_keys
+
+
+@app.patch("/api/projects/{project_id}/api-keys/{api_key_id}/deactivate")
+async def deactivate_api_key(
+    project_id: str,
+    api_key_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Deactivate an API key (revoke but keep for audit trail)"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    api_key = db.query(APIKey).filter(
+        APIKey.id == api_key_id,
+        APIKey.project_id == project_id
+    ).first()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    api_key.is_active = False
+    db.commit()
+    
+    return {"message": "API key deactivated successfully"}
+
+
+@app.patch("/api/projects/{project_id}/api-keys/{api_key_id}/activate")
+async def activate_api_key(
+    project_id: str,
+    api_key_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Reactivate a deactivated API key"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    api_key = db.query(APIKey).filter(
+        APIKey.id == api_key_id,
+        APIKey.project_id == project_id
+    ).first()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    # Check if expired
+    if api_key.expires_at and api_key.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Cannot activate expired key")
+    
+    api_key.is_active = True
+    db.commit()
+    
+    return {"message": "API key activated successfully"}
+
+
+@app.delete("/api/projects/{project_id}/api-keys/{api_key_id}")
+async def delete_api_key(
+    project_id: str,
+    api_key_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Permanently delete an API key"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    api_key = db.query(APIKey).filter(
+        APIKey.id == api_key_id,
+        APIKey.project_id == project_id
+    ).first()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    db.delete(api_key)
+    db.commit()
+    
+    return {"message": "API key deleted permanently"}
+
+
+# ============================================================================
+# Project Sharing Endpoints
+# ============================================================================
+
+@app.post("/api/projects/{project_id}/share", response_model=ProjectShareResponse)
+async def share_project(
+    project_id: str,
+    share_data: ProjectShareCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Share a project with another user"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Verify target user exists
+    target_user = db.query(User).filter(User.id == share_data.user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if already shared
+    existing_share = db.query(ProjectShare).filter(
+        ProjectShare.project_id == project_id,
+        ProjectShare.user_id == share_data.user_id
+    ).first()
+    if existing_share:
+        raise HTTPException(status_code=400, detail="Project already shared with this user")
+    
+    # Create share (only view permission supported)
+    project_share = ProjectShare(
+        id=str(uuid.uuid4()),
+        project_id=project_id,
+        user_id=share_data.user_id,
+        permission="view",  # Force view-only permission
+        created_by=current_user.id
+    )
+    
+    db.add(project_share)
+    db.commit()
+    db.refresh(project_share)
+    
+    return project_share
+
+
+@app.get("/api/projects/{project_id}/shares", response_model=List[ProjectShareResponse])
+async def list_project_shares(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all users a project is shared with"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    shares = db.query(ProjectShare).filter(ProjectShare.project_id == project_id).all()
+    return shares
+
+
+@app.delete("/api/projects/{project_id}/shares/{share_id}")
+async def unshare_project(
+    project_id: str,
+    share_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove project share"""
+    # Verify project exists and user owns it
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    share = db.query(ProjectShare).filter(
+        ProjectShare.id == share_id,
+        ProjectShare.project_id == project_id
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Share not found")
+    
+    db.delete(share)
+    db.commit()
+    
+    return {"message": "Project unshared successfully"}
+
+
+# ============================================================================
 # DB Connector Endpoints
 # ============================================================================
 
 @app.post("/api/connectors", response_model=DBConnectorResponse)
-async def create_connector(connector: DBConnectorCreate, db: Session = Depends(get_db)):
-    """Create a new database connector"""
-    # Check if name already exists
-    existing = db.query(DBConnector).filter(DBConnector.name == connector.name).first()
+async def create_connector(
+    connector: DBConnectorCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new database connector (requires authentication)"""
+    # Check if name already exists for this user
+    existing = db.query(DBConnector).filter(
+        DBConnector.name == connector.name,
+        DBConnector.user_id == current_user.id
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Connector with this name already exists")
     
@@ -213,7 +816,8 @@ async def create_connector(connector: DBConnectorCreate, db: Session = Depends(g
         username=connector.username,
         password=connector.password,
         connection_string=connector.connection_string,
-        is_active=True
+        is_active=True,
+        user_id=current_user.id
     )
     
     # Test connection before saving
@@ -243,25 +847,45 @@ async def create_connector(connector: DBConnectorCreate, db: Session = Depends(g
 
 
 @app.get("/api/connectors", response_model=List[DBConnectorResponse])
-async def list_connectors(db: Session = Depends(get_db)):
-    """List all database connectors"""
-    connectors = db.query(DBConnector).filter(DBConnector.is_active == True).all()
+async def list_connectors(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all database connectors for current user"""
+    connectors = db.query(DBConnector).filter(
+        DBConnector.is_active == True,
+        DBConnector.user_id == current_user.id
+    ).all()
     return connectors
 
 
 @app.get("/api/connectors/{connector_id}", response_model=DBConnectorResponse)
-async def get_connector(connector_id: str, db: Session = Depends(get_db)):
+async def get_connector(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get a specific connector by ID"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     return connector
 
 
 @app.delete("/api/connectors/{connector_id}")
-async def delete_connector(connector_id: str, db: Session = Depends(get_db)):
+async def delete_connector(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Delete a connector (soft delete)"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -272,9 +896,16 @@ async def delete_connector(connector_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/connectors/{connector_id}/schema")
-async def get_connector_schema(connector_id: str, db: Session = Depends(get_db)):
+async def get_connector_schema(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get database schema for a connector"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -297,9 +928,16 @@ async def get_connector_schema(connector_id: str, db: Session = Depends(get_db))
 
 
 @app.get("/api/connectors/{connector_id}/default-queries")
-async def get_connector_default_queries(connector_id: str, db: Session = Depends(get_db)):
+async def get_connector_default_queries(
+    connector_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get default queries for a connector based on its schema"""
-    connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -326,10 +964,17 @@ async def get_connector_default_queries(connector_id: str, db: Session = Depends
 # ============================================================================
 
 @app.post("/api/queries", response_model=SQLQueryResponse)
-async def create_query(query: SQLQueryCreate, db: Session = Depends(get_db)):
-    """Create a new SQL query"""
-    # Verify connector exists
-    connector = db.query(DBConnector).filter(DBConnector.id == query.connector_id).first()
+async def create_query(
+    query: SQLQueryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new SQL query (requires authentication)"""
+    # Verify connector exists and belongs to user
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == query.connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -354,7 +999,7 @@ async def create_query(query: SQLQueryCreate, db: Session = Depends(get_db)):
         sql_query=query.sql_query,
         connector_id=query.connector_id,
         project_id=query.project_id,
-        developer_id=query.developer_id,
+        user_id=current_user.id,
         is_valid=validation["valid"],
         validation_error=validation.get("message") if not validation["valid"] else None
     )
@@ -369,17 +1014,15 @@ async def create_query(query: SQLQueryCreate, db: Session = Depends(get_db)):
 @app.get("/api/queries", response_model=List[SQLQueryResponse])
 async def list_queries(
     project_id: Optional[str] = None,
-    developer_id: Optional[str] = None,
     connector_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all SQL queries with optional filters"""
-    query = db.query(SQLQuery)
+    """List all SQL queries for current user with optional filters"""
+    query = db.query(SQLQuery).filter(SQLQuery.user_id == current_user.id)
     
     if project_id:
         query = query.filter(SQLQuery.project_id == project_id)
-    if developer_id:
-        query = query.filter(SQLQuery.developer_id == developer_id)
     if connector_id:
         query = query.filter(SQLQuery.connector_id == connector_id)
     
@@ -388,9 +1031,16 @@ async def list_queries(
 
 
 @app.get("/api/queries/{query_id}", response_model=SQLQueryResponse)
-async def get_query(query_id: str, db: Session = Depends(get_db)):
+async def get_query(
+    query_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get a specific query by ID"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     return query
@@ -400,10 +1050,14 @@ async def get_query(query_id: str, db: Session = Depends(get_db)):
 async def update_query(
     query_id: str,
     query_update: SQLQueryUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Update an existing query"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     
@@ -444,9 +1098,16 @@ async def update_query(
 
 
 @app.delete("/api/queries/{query_id}")
-async def delete_query(query_id: str, db: Session = Depends(get_db)):
+async def delete_query(
+    query_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Delete a query"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    query = db.query(SQLQuery).filter(
+        SQLQuery.id == query_id,
+        SQLQuery.user_id == current_user.id
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     
@@ -457,9 +1118,16 @@ async def delete_query(query_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/queries/validate")
-async def validate_query(request: QueryValidateRequest, db: Session = Depends(get_db)):
+async def validate_query(
+    request: QueryValidateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Validate a SQL query without saving it"""
-    connector = db.query(DBConnector).filter(DBConnector.id == request.connector_id).first()
+    connector = db.query(DBConnector).filter(
+        DBConnector.id == request.connector_id,
+        DBConnector.user_id == current_user.id
+    ).first()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
     
@@ -479,11 +1147,27 @@ async def validate_query(request: QueryValidateRequest, db: Session = Depends(ge
 
 
 @app.post("/api/queries/execute")
-async def execute_query(request: QueryExecuteRequest, db: Session = Depends(get_db)):
-    """Execute a saved query and return results (supports dry-run mode)"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == request.query_id).first()
-    if not query:
-        raise HTTPException(status_code=404, detail="Query not found")
+async def execute_query(
+    request: QueryExecuteRequest,
+    db: Session = Depends(get_db),
+    auth: Union[User, APIKey] = Depends(get_current_user_or_api_key)
+):
+    """Execute a saved query and return results (supports dry-run mode, supports API key auth)"""
+    # If API key, verify query belongs to the project's owner
+    if isinstance(auth, APIKey):
+        # Get the project to find its owner
+        project = db.query(Project).filter(Project.id == auth.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Allow access to queries owned by the project owner
+        query = db.query(SQLQuery).filter(
+            SQLQuery.id == request.query_id,
+            SQLQuery.user_id == project.user_id
+        ).first()
+    else:
+        # Regular user auth - use helper function to check query access
+        query = check_query_access(request.query_id, auth.id, db)
     
     connector = db.query(DBConnector).filter(DBConnector.id == query.connector_id).first()
     if not connector:
@@ -523,12 +1207,25 @@ async def execute_query_by_id(
     query_id: str,
     limit: Optional[int] = 1000,
     dry_run: Optional[bool] = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: Union[User, APIKey] = Depends(get_current_user_or_api_key)
 ):
-    """Execute a saved query by ID (GET endpoint for direct use in dataSource, supports dry-run mode)"""
-    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
-    if not query:
-        raise HTTPException(status_code=404, detail="Query not found")
+    """Execute a saved query by ID (GET endpoint for direct use in dataSource, supports dry-run mode, supports API key auth)"""
+    # If API key, verify query belongs to the project's owner
+    if isinstance(auth, APIKey):
+        # Get the project to find its owner
+        project = db.query(Project).filter(Project.id == auth.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Allow access to queries owned by the project owner
+        query = db.query(SQLQuery).filter(
+            SQLQuery.id == query_id,
+            SQLQuery.user_id == project.user_id
+        ).first()
+    else:
+        # Regular user auth - use helper function to check query access
+        query = check_query_access(query_id, auth.id, db)
     
     connector = db.query(DBConnector).filter(DBConnector.id == query.connector_id).first()
     if not connector:
@@ -570,14 +1267,18 @@ async def execute_query_by_id(
 # ============================================================================
 
 @app.post("/api/projects", response_model=ProjectResponse)
-async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
-    """Create a new canvas project"""
+async def create_project(
+    project: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new canvas project (requires authentication)"""
     db_project = Project(
         id=str(uuid.uuid4()),
         name=project.name,
         description=project.description,
         components=json.dumps(project.components),
-        developer_id=project.developer_id
+        user_id=current_user.id
     )
     
     db.add(db_project)
@@ -593,14 +1294,11 @@ async def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
 
 @app.get("/api/projects", response_model=List[ProjectResponse])
 async def list_projects(
-    developer_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all projects with optional filters"""
-    query = db.query(Project)
-    
-    if developer_id:
-        query = query.filter(Project.developer_id == developer_id)
+    """List all projects for current user"""
+    query = db.query(Project).filter(Project.user_id == current_user.id)
     
     projects = query.order_by(Project.updated_at.desc()).all()
     
@@ -614,12 +1312,96 @@ async def list_projects(
     ]
 
 
+def check_query_access(query_id: str, user_id: str, db: Session) -> SQLQuery:
+    """
+    Check if user has access to query (either owns it or has access through project sharing)
+    Returns the query if access is granted, raises HTTPException if not
+    """
+    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="Query not found")
+    
+    # Check if user owns the query
+    if query.user_id == user_id:
+        return query
+    
+    # If not owner, check if user has access to any project containing this query
+    # Find projects that contain this query
+    projects_with_query = []
+    all_projects = db.query(Project).all()
+    
+    for project in all_projects:
+        try:
+            components = json.loads(project.components)
+            for component in components:
+                if (component.get('type') == 'Table' and 
+                    component.get('props', {}).get('queryId') == query_id):
+                    projects_with_query.append(project)
+                    break
+        except (json.JSONDecodeError, KeyError):
+            continue
+    
+    # Check if user has access to any project containing this query
+    for project in projects_with_query:
+        if project.user_id == user_id:
+            return query
+        
+        # Check if project is shared with user
+        project_share = db.query(ProjectShare).filter(
+            ProjectShare.project_id == project.id,
+            ProjectShare.user_id == user_id
+        ).first()
+        if project_share:
+            return query
+    
+    # No access found
+    raise HTTPException(
+        status_code=403, 
+        detail="You don't have permission to access this query. Ask the project owner to share the project with you."
+    )
+
+
+def check_project_access(project_id: str, user_id: str, db: Session) -> Project:
+    """
+    Check if user has access to project (either owns it or has shared access)
+    Returns the project if access is granted, raises HTTPException if not
+    """
+    # First check if user owns the project
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == user_id
+    ).first()
+    
+    if project:
+        return project
+    
+    # If not owner, check if project is shared with user
+    project_share = db.query(ProjectShare).filter(
+        ProjectShare.project_id == project_id,
+        ProjectShare.user_id == user_id
+    ).first()
+    
+    if project_share:
+        # User has shared access, get the project
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project:
+            return project
+    
+    # No access found
+    raise HTTPException(
+        status_code=403, 
+        detail="You don't have permission to access this project. Ask the project owner to share the project with you."
+    )
+
+
 @app.get("/api/projects/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: str, db: Session = Depends(get_db)):
-    """Get a specific project by ID"""
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+async def get_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific project by ID (checks ownership or shared access)"""
+    project = check_project_access(project_id, current_user.id, db)
     
     return {
         **project.__dict__,
@@ -631,10 +1413,14 @@ async def get_project(project_id: str, db: Session = Depends(get_db)):
 async def update_project(
     project_id: str,
     project_update: ProjectUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Update an existing project"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
@@ -658,9 +1444,16 @@ async def update_project(
 
 
 @app.delete("/api/projects/{project_id}")
-async def delete_project(project_id: str, db: Session = Depends(get_db)):
+async def delete_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Delete a project"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == current_user.id
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
@@ -675,20 +1468,55 @@ async def export_project(
     project_id: str,
     format: str = "static",  # "static" or "fullstack"
     data_strategy: str = "snapshot",  # "snapshot" or "live"
-    db: Session = Depends(get_db)
+    mode: str = "public",  # "public" (API key) or "protected" (JWT login)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Export a project as a distributable artifact
     
     - format: 'static' (single HTML file) or 'fullstack' (ZIP with backend)
     - data_strategy: 'snapshot' (embed current data) or 'live' (keep API calls)
+    - mode: 'public' (use API key) or 'protected' (require user login)
     """
     try:
-        project = db.query(Project).filter(Project.id == project_id).first()
+        project = db.query(Project).filter(
+            Project.id == project_id,
+            Project.user_id == current_user.id
+        ).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         
         components = json.loads(project.components)
+        
+        # Get or generate API key for public exports
+        api_key_value = None
+        if mode == "public" and data_strategy == "live":
+            # Check if any active API key exists for this project
+            existing_key = db.query(APIKey).filter(
+                APIKey.project_id == project_id,
+                APIKey.is_active == True
+            ).order_by(APIKey.created_at.desc()).first()
+            
+            if existing_key:
+                # Reuse the most recent active key
+                api_key_value = existing_key.key
+            else:
+                # No active keys found - create one
+                import secrets
+                api_key_value = f"pk_{secrets.token_urlsafe(32)}"
+                
+                new_api_key = APIKey(
+                    id=str(uuid.uuid4()),
+                    key=api_key_value,
+                    name="Export Key (Auto-generated)",
+                    project_id=project_id,
+                    is_active=True,
+                    expires_at=None,  # Never expires
+                    created_by=current_user.id
+                )
+                db.add(new_api_key)
+                db.commit()
         
         if format == "static":
             # Generate standalone HTML file
@@ -696,7 +1524,10 @@ async def export_project(
                 project_name=project.name,
                 components=components,
                 data_strategy=data_strategy,
-                db=db
+                mode=mode,
+                api_key=api_key_value,
+                db=db,
+                project_id=project_id
             )
             
             return Response(
@@ -739,7 +1570,10 @@ def generate_static_bundle(
     project_name: str,
     components: List[dict],
     data_strategy: str,
-    db: Session
+    mode: str,
+    api_key: Optional[str],
+    db: Session,
+    project_id: Optional[str] = None
 ) -> str:
     """Generate a standalone HTML file with embedded React app"""
     
@@ -814,8 +1648,82 @@ def generate_static_bundle(
     // Component data (injected during export)
     const COMPONENTS = {json.dumps(components)};
     const PROJECT_NAME = {json.dumps(project_name)};
+    const PROJECT_ID = {json.dumps(project_id)};
     const DATA_STRATEGY = {json.dumps(data_strategy)};
+    const MODE = {json.dumps(mode)};
+    const API_KEY = {json.dumps(api_key)};
+    const API_BASE_URL = 'http://localhost:8000';
     const SNAPSHOT_DATA = {json.dumps(snapshot_data)};
+    
+    // Authentication state management
+    let authToken = localStorage.getItem('proto_auth_token');
+    let isAuthenticated = !!authToken;
+    
+    // Login function for protected mode
+    async function login(username, password) {{
+      try {{
+        const response = await fetch(`${{API_BASE_URL}}/api/auth/login`, {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ username, password }})
+        }});
+        
+        if (!response.ok) {{
+          const error = await response.json();
+          throw new Error(error.detail || 'Login failed');
+        }}
+        
+        const data = await response.json();
+        authToken = data.access_token;
+        localStorage.setItem('proto_auth_token', authToken);
+        isAuthenticated = true;
+        
+        // Check project access after successful login
+        await checkProjectAccess();
+        
+        return true;
+      }} catch (error) {{
+        console.error('Login error:', error);
+        throw error;
+      }}
+    }}
+    
+    // Check if user has access to this project
+    async function checkProjectAccess() {{
+      try {{
+        // Check access to the specific project
+        const response = await fetch(`${{API_BASE_URL}}/api/projects/${{PROJECT_ID}}`, {{
+          headers: {{
+            'Authorization': `Bearer ${{authToken}}`,
+            'Content-Type': 'application/json'
+          }}
+        }});
+        
+        if (!response.ok) {{
+          if (response.status === 403) {{
+            throw new Error('You don\\'t have permission to access this project. Ask the project owner to share the project with you.');
+          }}
+          throw new Error('Failed to verify project access');
+        }}
+        
+        return true;
+      }} catch (error) {{
+        console.error('Project access check failed:', error);
+        // Clear authentication if access check fails
+        authToken = null;
+        localStorage.removeItem('proto_auth_token');
+        isAuthenticated = false;
+        throw error;
+      }}
+    }}
+    
+    // Logout function
+    function logout() {{
+      authToken = null;
+      localStorage.removeItem('proto_auth_token');
+      isAuthenticated = false;
+      window.location.reload();
+    }}
     
     // Component renderers
     function Button({{ text, variant, size, disabled, onClick }}) {{
@@ -974,11 +1882,37 @@ def generate_static_bundle(
       const fetchQueryData = async (id) => {{
         setLoading(true);
         try {{
-          const response = await fetch(`http://localhost:8000/api/queries/${{id}}/execute`);
+          const headers = {{}};
+          
+          // Add authentication based on mode
+          if (MODE === 'public' && API_KEY) {{
+            headers['X-API-Key'] = API_KEY;
+          }} else if (MODE === 'protected' && authToken) {{
+            headers['Authorization'] = `Bearer ${{authToken}}`;
+          }}
+          
+          const response = await fetch(`${{API_BASE_URL}}/api/queries/${{id}}/execute`, {{
+            headers: headers
+          }});
+          
+          if (response.status === 401) {{
+            setError('Authentication required. Please login.');
+            if (MODE === 'protected') {{
+              isAuthenticated = false;
+              localStorage.removeItem('proto_auth_token');
+              window.location.reload();
+            }}
+            return;
+          }}
+          
+          if (!response.ok) {{
+            throw new Error(`HTTP error! status: ${{response.status}}`);
+          }}
+          
           const result = await response.json();
           setTableData(result.data || []);
         }} catch (err) {{
-          setError('Failed to load data');
+          setError('Failed to load data: ' + err.message);
           console.error(err);
         }} finally {{
           setLoading(false);
@@ -988,11 +1922,37 @@ def generate_static_bundle(
       const fetchUrlData = async (url) => {{
         setLoading(true);
         try {{
-          const response = await fetch(url);
+          const headers = {{}};
+          
+          // Add authentication based on mode
+          if (MODE === 'public' && API_KEY) {{
+            headers['X-API-Key'] = API_KEY;
+          }} else if (MODE === 'protected' && authToken) {{
+            headers['Authorization'] = `Bearer ${{authToken}}`;
+          }}
+          
+          const response = await fetch(url, {{
+            headers: headers
+          }});
+          
+          if (response.status === 401) {{
+            setError('Authentication required. Please login.');
+            if (MODE === 'protected') {{
+              isAuthenticated = false;
+              localStorage.removeItem('proto_auth_token');
+              window.location.reload();
+            }}
+            return;
+          }}
+          
+          if (!response.ok) {{
+            throw new Error(`HTTP error! status: ${{response.status}}`);
+          }}
+          
           const result = await response.json();
           setTableData(result.data || result);
         }} catch (err) {{
-          setError('Failed to load data');
+          setError('Failed to load data: ' + err.message);
           console.error(err);
         }} finally {{
           setLoading(false);
@@ -1208,10 +2168,109 @@ def generate_static_bundle(
       }}
     }}
     
+    // Login component for protected mode
+    function LoginForm() {{
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+      
+      const handleSubmit = async (e) => {{
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        
+        try {{
+          await login(username, password);
+          window.location.reload();
+        }} catch (err) {{
+          setError(err.message || 'Login failed. Please check your credentials.');
+        }} finally {{
+          setLoading(false);
+        }}
+      }};
+      
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 px-4">
+          <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">{{PROJECT_NAME}}</h1>
+              <p className="text-gray-600 text-sm">Please login to view this dashboard</p>
+            </div>
+            
+            <form onSubmit={{handleSubmit}} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input
+                  type="text"
+                  value={{username}}
+                  onChange={{(e) => setUsername(e.target.value)}}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter your username"
+                  required
+                  disabled={{loading}}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={{password}}
+                  onChange={{(e) => setPassword(e.target.value)}}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter your password"
+                  required
+                  disabled={{loading}}
+                />
+              </div>
+              
+              {{error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-red-800 text-sm">{{error}}</p>
+                </div>
+              )}}
+              
+              <button
+                type="submit"
+                disabled={{loading}}
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {{loading ? 'Logging in...' : 'Login'}}
+              </button>
+            </form>
+            
+            <div className="mt-6 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-blue-800 text-xs">
+                🔒 This dashboard is protected. Use your Proto account credentials to login.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }}
+    
     // Main App component
     function App() {{
+      // Show login form if protected mode and not authenticated
+      if (MODE === 'protected' && !isAuthenticated) {{
+        return <LoginForm />;
+      }}
+      
+      // Show main content if authenticated or public mode
       return (
         <div className="w-full min-h-screen bg-gradient-to-br from-white to-slate-50">
+          {{MODE === 'protected' && (
+            <div className="fixed top-4 right-4 z-50">
+              <button
+                onClick={{logout}}
+                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50 transition-colors shadow-md"
+              >
+                Logout
+              </button>
+            </div>
+          )}}
+          
           <div className="relative w-full min-h-screen">
             {{COMPONENTS.map((component) => {{
               if (component.parentId) return null;
@@ -1272,7 +2331,10 @@ def generate_fullstack_bundle(
         project_name=project_name,
         components=components,
         data_strategy="live",  # Always use live data for fullstack
-        db=db
+        mode="public",  # Use public mode for fullstack exports
+        api_key=None,  # No API key needed for fullstack (has its own backend)
+        db=db,
+        project_id=project_id
     )
     with open(os.path.join(frontend_dir, "index.html"), "w") as f:
         f.write(frontend_html)
