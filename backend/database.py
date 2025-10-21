@@ -124,7 +124,7 @@ class ProjectShare(Base):
     id = Column(String, primary_key=True, index=True)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    permission = Column(String, default="view")  # view, edit
+    permission = Column(String, default="view")  # only view permission supported
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
 

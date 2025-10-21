@@ -34,7 +34,7 @@ export function ProjectShareManager({ projectId, projectName, projectOwnerId }: 
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
-  const [selectedPermission, setSelectedPermission] = useState<'view' | 'edit'>('view');
+  const [selectedPermission] = useState<'view'>('view');
 
   useEffect(() => {
     loadShares();
@@ -82,7 +82,6 @@ export function ProjectShareManager({ projectId, projectName, projectOwnerId }: 
       });
       
       setSelectedUserId('');
-      setSelectedPermission('view');
       setShowAddForm(false);
       loadShares();
     } catch (error: any) {
@@ -158,34 +157,16 @@ export function ProjectShareManager({ projectId, projectName, projectOwnerId }: 
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Permission
-              </label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="permission"
-                    value="view"
-                    checked={selectedPermission === 'view'}
-                    onChange={(e) => setSelectedPermission(e.target.value as 'view')}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm text-gray-700">View Only</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="permission"
-                    value="edit"
-                    checked={selectedPermission === 'edit'}
-                    onChange={(e) => setSelectedPermission(e.target.value as 'edit')}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-sm text-gray-700">Can Edit</span>
-                </label>
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm font-medium text-blue-800">View Only Access</span>
               </div>
+              <p className="text-xs text-blue-700 mt-1">
+                Shared users can only view exported dashboards, not edit the project
+              </p>
             </div>
             <Button
               onClick={handleAddShare}
@@ -242,12 +223,8 @@ export function ProjectShareManager({ projectId, projectName, projectOwnerId }: 
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <span className={`text-xs font-medium px-2 py-1 rounded ${
-                        share.permission === 'edit'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-700'
-                      }`}>
-                        {share.permission === 'edit' ? 'Can Edit' : 'View Only'}
+                      <span className="text-xs font-medium px-2 py-1 rounded bg-gray-100 text-gray-700">
+                        View Only
                       </span>
                       <p className="text-xs text-gray-400 mt-1">
                         Shared {new Date(share.created_at).toLocaleDateString()}

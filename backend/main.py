@@ -250,7 +250,7 @@ class APIKeyResponse(BaseModel):
 class ProjectShareCreate(BaseModel):
     project_id: str
     user_id: str
-    permission: str = "view"  # view or edit
+    permission: str = "view"  # only view permission supported
 
 
 class ProjectShareResponse(BaseModel):
@@ -723,12 +723,12 @@ async def share_project(
     if existing_share:
         raise HTTPException(status_code=400, detail="Project already shared with this user")
     
-    # Create share
+    # Create share (only view permission supported)
     project_share = ProjectShare(
         id=str(uuid.uuid4()),
         project_id=project_id,
         user_id=share_data.user_id,
-        permission=share_data.permission,
+        permission="view",  # Force view-only permission
         created_by=current_user.id
     )
     
