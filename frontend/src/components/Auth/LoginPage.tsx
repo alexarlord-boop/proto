@@ -2,8 +2,13 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-export function LoginPage() {
+interface LoginPageProps {
+  projectAccessError?: string | null;
+}
+
+export function LoginPage({ projectAccessError }: LoginPageProps) {
   const { login, isLoading, authStatus } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -45,10 +50,24 @@ export function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Show project access error if user doesn't have access */}
+            {projectAccessError && (
+              <Alert variant="destructive">
+                <AlertTitle>Access Denied</AlertTitle>
+                <AlertDescription className="mt-2">
+                  {projectAccessError}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Show login error if login failed */}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-                {error}
-              </div>
+              <Alert variant="destructive">
+                <AlertTitle>Login Failed</AlertTitle>
+                <AlertDescription className="mt-2">
+                  {error}
+                </AlertDescription>
+              </Alert>
             )}
 
             <div>

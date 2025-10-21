@@ -1166,34 +1166,8 @@ async def execute_query(
             SQLQuery.user_id == project.user_id
         ).first()
     else:
-        # Regular user auth - need to check if user has access to the query
-        query = db.query(SQLQuery).filter(SQLQuery.id == request.query_id).first()
-        
-        if query:
-            # Check if user owns the query OR has access through project sharing
-            has_access = query.user_id == auth.id
-            
-            # If not owner, check if user has access to ANY project owned by the query owner
-            if not has_access:
-                # Check if there's any project owned by query owner that's shared with current user
-                project_share = db.query(ProjectShare).join(
-                    Project, ProjectShare.project_id == Project.id
-                ).filter(
-                    Project.user_id == query.user_id,
-                    ProjectShare.user_id == auth.id
-                ).first()
-                has_access = project_share is not None
-            
-            if not has_access:
-                raise HTTPException(
-                    status_code=403, 
-                    detail="You don't have permission to access this query. Ask the project owner to share the project with you."
-                )
-        else:
-            query = None
-    
-    if not query:
-        raise HTTPException(status_code=404, detail="Query not found")
+        # Regular user auth - use helper function to check query access
+        query = check_query_access(request.query_id, auth.id, db)
     
     connector = db.query(DBConnector).filter(DBConnector.id == query.connector_id).first()
     if not connector:
@@ -1250,34 +1224,8 @@ async def execute_query_by_id(
             SQLQuery.user_id == project.user_id
         ).first()
     else:
-        # Regular user auth - need to check if user has access to the query
-        query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
-        
-        if query:
-            # Check if user owns the query OR has access through project sharing
-            has_access = query.user_id == auth.id
-            
-            # If not owner, check if user has access to ANY project owned by the query owner
-            if not has_access:
-                # Check if there's any project owned by query owner that's shared with current user
-                project_share = db.query(ProjectShare).join(
-                    Project, ProjectShare.project_id == Project.id
-                ).filter(
-                    Project.user_id == query.user_id,
-                    ProjectShare.user_id == auth.id
-                ).first()
-                has_access = project_share is not None
-            
-            if not has_access:
-                raise HTTPException(
-                    status_code=403, 
-                    detail="You don't have permission to access this query. Ask the project owner to share the project with you."
-                )
-        else:
-            query = None
-    
-    if not query:
-        raise HTTPException(status_code=404, detail="Query not found")
+        # Regular user auth - use helper function to check query access
+        query = check_query_access(query_id, auth.id, db)
     
     connector = db.query(DBConnector).filter(DBConnector.id == query.connector_id).first()
     if not connector:
@@ -1364,19 +1312,96 @@ async def list_projects(
     ]
 
 
+def check_query_access(query_id: str, user_id: str, db: Session) -> SQLQuery:
+    """
+    Check if user has access to query (either owns it or has access through project sharing)
+    Returns the query if access is granted, raises HTTPException if not
+    """
+    query = db.query(SQLQuery).filter(SQLQuery.id == query_id).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="Query not found")
+    
+    # Check if user owns the query
+    if query.user_id == user_id:
+        return query
+    
+    # If not owner, check if user has access to any project containing this query
+    # Find projects that contain this query
+    projects_with_query = []
+    all_projects = db.query(Project).all()
+    
+    for project in all_projects:
+        try:
+            components = json.loads(project.components)
+            for component in components:
+                if (component.get('type') == 'Table' and 
+                    component.get('props', {}).get('queryId') == query_id):
+                    projects_with_query.append(project)
+                    break
+        except (json.JSONDecodeError, KeyError):
+            continue
+    
+    # Check if user has access to any project containing this query
+    for project in projects_with_query:
+        if project.user_id == user_id:
+            return query
+        
+        # Check if project is shared with user
+        project_share = db.query(ProjectShare).filter(
+            ProjectShare.project_id == project.id,
+            ProjectShare.user_id == user_id
+        ).first()
+        if project_share:
+            return query
+    
+    # No access found
+    raise HTTPException(
+        status_code=403, 
+        detail="You don't have permission to access this query. Ask the project owner to share the project with you."
+    )
+
+
+def check_project_access(project_id: str, user_id: str, db: Session) -> Project:
+    """
+    Check if user has access to project (either owns it or has shared access)
+    Returns the project if access is granted, raises HTTPException if not
+    """
+    # First check if user owns the project
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.user_id == user_id
+    ).first()
+    
+    if project:
+        return project
+    
+    # If not owner, check if project is shared with user
+    project_share = db.query(ProjectShare).filter(
+        ProjectShare.project_id == project_id,
+        ProjectShare.user_id == user_id
+    ).first()
+    
+    if project_share:
+        # User has shared access, get the project
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project:
+            return project
+    
+    # No access found
+    raise HTTPException(
+        status_code=403, 
+        detail="You don't have permission to access this project. Ask the project owner to share the project with you."
+    )
+
+
 @app.get("/api/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get a specific project by ID"""
-    project = db.query(Project).filter(
-        Project.id == project_id,
-        Project.user_id == current_user.id
-    ).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    """Get a specific project by ID (checks ownership or shared access)"""
+    project = check_project_access(project_id, current_user.id, db)
     
     return {
         **project.__dict__,
@@ -1501,7 +1526,8 @@ async def export_project(
                 data_strategy=data_strategy,
                 mode=mode,
                 api_key=api_key_value,
-                db=db
+                db=db,
+                project_id=project_id
             )
             
             return Response(
@@ -1546,7 +1572,8 @@ def generate_static_bundle(
     data_strategy: str,
     mode: str,
     api_key: Optional[str],
-    db: Session
+    db: Session,
+    project_id: Optional[str] = None
 ) -> str:
     """Generate a standalone HTML file with embedded React app"""
     
@@ -1621,6 +1648,7 @@ def generate_static_bundle(
     // Component data (injected during export)
     const COMPONENTS = {json.dumps(components)};
     const PROJECT_NAME = {json.dumps(project_name)};
+    const PROJECT_ID = {json.dumps(project_id)};
     const DATA_STRATEGY = {json.dumps(data_strategy)};
     const MODE = {json.dumps(mode)};
     const API_KEY = {json.dumps(api_key)};
@@ -1649,9 +1677,42 @@ def generate_static_bundle(
         authToken = data.access_token;
         localStorage.setItem('proto_auth_token', authToken);
         isAuthenticated = true;
+        
+        // Check project access after successful login
+        await checkProjectAccess();
+        
         return true;
       }} catch (error) {{
         console.error('Login error:', error);
+        throw error;
+      }}
+    }}
+    
+    // Check if user has access to this project
+    async function checkProjectAccess() {{
+      try {{
+        // Check access to the specific project
+        const response = await fetch(`${{API_BASE_URL}}/api/projects/${{PROJECT_ID}}`, {{
+          headers: {{
+            'Authorization': `Bearer ${{authToken}}`,
+            'Content-Type': 'application/json'
+          }}
+        }});
+        
+        if (!response.ok) {{
+          if (response.status === 403) {{
+            throw new Error('You don\\'t have permission to access this project. Ask the project owner to share the project with you.');
+          }}
+          throw new Error('Failed to verify project access');
+        }}
+        
+        return true;
+      }} catch (error) {{
+        console.error('Project access check failed:', error);
+        // Clear authentication if access check fails
+        authToken = null;
+        localStorage.removeItem('proto_auth_token');
+        isAuthenticated = false;
         throw error;
       }}
     }}
@@ -2272,7 +2333,8 @@ def generate_fullstack_bundle(
         data_strategy="live",  # Always use live data for fullstack
         mode="public",  # Use public mode for fullstack exports
         api_key=None,  # No API key needed for fullstack (has its own backend)
-        db=db
+        db=db,
+        project_id=project_id
     )
     with open(os.path.join(frontend_dir, "index.html"), "w") as f:
         f.write(frontend_html)
