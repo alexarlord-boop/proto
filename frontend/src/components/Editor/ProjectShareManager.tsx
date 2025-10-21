@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Trash2, UserPlus, Users as UsersIcon, Shield } from 'lucide-react';
@@ -28,7 +28,7 @@ interface ProjectShareManagerProps {
   projectOwnerId: string;
 }
 
-export function ProjectShareManager({ projectId, projectName, projectOwnerId }: ProjectShareManagerProps) {
+export function ProjectShareManager({ projectId, projectOwnerId }: ProjectShareManagerProps) {
   const [shares, setShares] = useState<ProjectShareWithUser[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);

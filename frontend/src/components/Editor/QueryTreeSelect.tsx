@@ -8,9 +8,6 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { apiClient } from '@/lib/api-client'
-
-const API_BASE = 'http://localhost:8000'
-
 interface DBConnector {
   id: string
   name: string
@@ -37,9 +34,7 @@ interface QueryTreeSelectProps {
 export function QueryTreeSelect({
   value,
   onChange,
-  disabled = false,
-  placeholder = 'Select a query...',
-}: QueryTreeSelectProps) {
+  disabled = false}: QueryTreeSelectProps) {
   const [connectors, setConnectors] = useState<DBConnector[]>([])
   const [queries, setQueries] = useState<SQLQuery[]>([])
   const [expandedConnectors, setExpandedConnectors] = useState<Set<string>>(new Set())

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Trash2, Plus, Copy, Check, Eye, EyeOff, Key, Power, PowerOff, AlertTriangle } from 'lucide-react';
+import { Trash2, Plus, Copy, Check, Eye, EyeOff, Key, Power, PowerOff } from 'lucide-react';
 
 interface APIKey {
   id: string;
@@ -19,7 +19,7 @@ interface APIKeyManagerProps {
   projectName: string;
 }
 
-export function APIKeyManager({ projectId, projectName }: APIKeyManagerProps) {
+export function APIKeyManager({ projectId }: APIKeyManagerProps) {
   const [apiKeys, setApiKeys] = useState<APIKey[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);

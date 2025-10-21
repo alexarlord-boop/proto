@@ -22,9 +22,6 @@ import type {
   FormattingRule,
   ColumnConfig,
 } from './types'
-
-const API_BASE = 'http://localhost:8000'
-
 interface PropertyPanelProps {
   component: ComponentInstance | null
   propertySchema: PropertyDefinition[]

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,9 +27,6 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { SchemaVisualizer } from './SchemaVisualizer'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { apiClient } from '@/lib/api-client'
-
-const API_BASE = 'http://localhost:8000'
-
 interface DBConnector {
   id: string
   name: string
@@ -75,12 +72,6 @@ interface DefaultQuery {
   sql_query: string
   query_type: string
 }
-
-interface ConnectorDefaultQueries {
-  connector_id: string
-  queries: DefaultQuery[]
-}
-
 export function QueryCreator() {
   const { t } = useTranslation()
   const [connectors, setConnectors] = useState<DBConnector[]>([])
