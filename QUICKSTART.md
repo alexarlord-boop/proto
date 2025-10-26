@@ -43,6 +43,11 @@ pip install -r requirements.txt
 
 ### Step 5: Start the backend server
 ```bash
+# option 1
+fastapi run main.py     
+# option 2
+python -m uvicorn main:app --reload
+# option 3
 uvicorn main:app --reload
 ```
 
@@ -63,6 +68,7 @@ cd frontend
 
 ### Step 2: Install dependencies
 ```bash
+npm install -g pnpm
 pnpm install
 ```
 
